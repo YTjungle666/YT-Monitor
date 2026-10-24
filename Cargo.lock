@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "ytmon-agent"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -1999,7 +1999,7 @@ dependencies = [
 
 [[package]]
 name = "ytmon-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -2007,7 +2007,7 @@ dependencies = [
 
 [[package]]
 name = "ytmon-dist"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -2023,7 +2023,7 @@ dependencies = [
 
 [[package]]
 name = "ytmon-server"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "axum",

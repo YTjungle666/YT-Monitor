@@ -101,11 +101,34 @@ pub fn spool_files(dir: &str, limit: usize) -> Vec<PathBuf> {
 mod tests {
     use super::*;
 
-    fn tmp(tag: &str) -> PathBuf {
+    /// A temp spool directory removed when the test ends, so a failing
+    /// assertion cannot leave batches behind for the next run to trip over.
+    pub struct TmpDir(PathBuf);
+
+    impl std::ops::Deref for TmpDir {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl AsRef<Path> for TmpDir {
+        fn as_ref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TmpDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn tmp(tag: &str) -> TmpDir {
         let d = std::env::temp_dir().join(format!("ytmon-report-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
-        d
+        TmpDir(d)
     }
 
     #[test]

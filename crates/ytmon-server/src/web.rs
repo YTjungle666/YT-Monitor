@@ -10,7 +10,7 @@
 pub const INDEX_HTML: &str = r##"<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ytmon</title>
+<title>YT-Monitor</title>
 <link rel="icon" href="/icon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/icon-180.png" sizes="180x180">
 <meta name="theme-color" content="#0a0c0f">
@@ -61,7 +61,7 @@ h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.6px}
 .empty{color:var(--dim);padding:40px;text-align:center;font-size:13px}
 </style></head><body>
 <header>
-  <h1>ytmon</h1>
+  <h1>YT-Monitor</h1>
   <div class="sum"><span><b id="on">—</b> 在线</span><span><b id="tot">—</b> 总数</span>
     <span id="alertBox" style="display:none"><b class="bad" id="alerts">0</b> 异常</span>
     <span id="stat">—</span></div>

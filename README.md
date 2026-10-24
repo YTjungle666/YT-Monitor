@@ -1,4 +1,4 @@
-# ytmon — 家庭网络监控（纯 Rust）
+# YT-Monitor — 家庭网络监控（纯 Rust）
 
 [![ci](https://github.com/YTjungle666/YT-Monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/YTjungle666/YT-Monitor/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)

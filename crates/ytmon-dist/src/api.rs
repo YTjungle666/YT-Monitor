@@ -94,12 +94,12 @@ async fn index(State(state): State<AppState>, headers: HeaderMap) -> impl IntoRe
         ));
     }
     let html = format!(
-        "<!doctype html><meta charset=utf-8><title>ytmon-dist</title>\
+        "<!doctype html><meta charset=utf-8><title>YT-Monitor dist</title>\
          <style>body{{font:14px system-ui;margin:2em;background:#111;color:#ddd}}\
          a{{color:#7ab}}table{{border-collapse:collapse}}\
          td,th{{padding:.35em .9em;border-bottom:1px solid #333;text-align:left}}\
          code{{color:#9c9}}pre{{background:#1b1b1b;padding:1em;overflow:auto}}</style>\
-         <h2>ytmon 分发包</h2>\
+         <h2>YT-Monitor 分发包</h2>\
          <p>共 {n} 个文件 · <a href=/version.json>version.json</a></p>\
          <table><tr><th>文件</th><th>大小</th><th>sha256</th><th>更新</th></tr>{rows}</table>\
          <h3>安装 / 更新</h3>\

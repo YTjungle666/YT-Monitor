@@ -757,11 +757,34 @@ mod tests {
 
     static SEQ: AtomicU32 = AtomicU32::new(0);
 
-    fn temp_store() -> Store {
+    /// A throwaway database that deletes its file when the test ends — on
+    /// success, on assertion failure and on panic alike. Without the `Drop`,
+    /// every `cargo test` run left a dozen multi-megabyte redb files in the
+    /// temp directory.
+    pub struct TempStore {
+        store: Store,
+        path: std::path::PathBuf,
+    }
+
+    impl std::ops::Deref for TempStore {
+        type Target = Store;
+        fn deref(&self) -> &Store {
+            &self.store
+        }
+    }
+
+    impl Drop for TempStore {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn temp_store() -> TempStore {
         let n = SEQ.fetch_add(1, Ordering::SeqCst);
         let path = std::env::temp_dir().join(format!("ytmon-test-{}-{}.db", std::process::id(), n));
         let _ = std::fs::remove_file(&path);
-        Store::open(path.to_str().unwrap()).expect("open temp store")
+        let store = Store::open(path.to_str().unwrap()).expect("open temp store");
+        TempStore { store, path }
     }
 
     fn ingest_series(store: &Store, host: &str, metric: &str, points: &[(i64, f64)]) {
