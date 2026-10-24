@@ -55,12 +55,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo build --release --target x86_64-unknown-linux-musl
-      - name: statically linked?
+      # The point of the musl target is a binary that runs on any distro, so the
+      # check is "no shared library dependencies" rather than a string match:
+      # `file` calls these static-pie, which is not the word "statically linked".
+      - name: no dynamic libraries
         run: |
+          set -eu
           for b in ytmon-agent ytmon-server ytmon-dist; do
             f="target/x86_64-unknown-linux-musl/release/$b"
             file "$f"
-            file "$f" | grep -q 'statically linked'
+            if readelf -d "$f" 2>/dev/null | grep -q NEEDED; then
+              echo "::error::$b links against a shared library"
+              readelf -d "$f" | grep NEEDED
+              exit 1
+            fi
           done
       - uses: actions/upload-artifact@v4
         with:
