@@ -57,7 +57,27 @@ jobs:
         run: |
           set -eu
           tag="${GITHUB_REF_NAME}"
-          gh release create "$tag" --title "$tag" --generate-notes \
-            dist/bin/ytmon-agent dist/bin/ytmon-server dist/bin/ytmon-dist \
-            dist/SHA256SUMS dist/packages/ytmon-agent-windows-x64.zip \
-            dist/packages/ytmon-agent-fnos.tar.gz dist/packages/SHA256SUMS
+          # Two checksum files share a basename, and GitHub allows one asset per
+          # name, so the package-level one is uploaded under its own name.
+          cp dist/packages/SHA256SUMS dist/SHA256SUMS-packages
+          files="dist/bin/ytmon-agent dist/bin/ytmon-server dist/bin/ytmon-dist
+                 dist/SHA256SUMS dist/SHA256SUMS-packages
+                 dist/packages/ytmon-agent-windows-x64.zip
+                 dist/packages/ytmon-agent-fnos.tar.gz"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" $files --clobber
+          else
+            gh release create "$tag" --title "$tag" --generate-notes $files
+          fi
+      - name: verify assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release view "$GITHUB_REF_NAME" --json assets \
+            --jq '.assets[] | "\(.name) \(.size)"'
+          n=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length')
+          test "$n" -eq 7
+          gh release view "$GITHUB_REF_NAME" --json assets \
+            --jq '.assets[] | select(.size < 1000) | .name' | tee /tmp/small
+          test ! -s /tmp/small
