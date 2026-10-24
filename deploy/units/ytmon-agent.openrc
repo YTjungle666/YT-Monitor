@@ -1,0 +1,17 @@
+#!/sbin/openrc-run
+# ytmon-agent for Alpine / OpenRC  ->  /etc/init.d/ytmon-agent
+name="ytmon-agent"
+description="ytmon host metrics agent"
+
+command="/usr/local/bin/ytmon-agent"
+command_args="--config /etc/ytmon/agent.toml"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+output_log="/var/log/ytmon-agent.log"
+error_log="/var/log/ytmon-agent.log"
+
+depend() {
+    need net
+    after firewall
+}

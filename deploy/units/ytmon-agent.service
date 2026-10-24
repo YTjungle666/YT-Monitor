@@ -1,0 +1,19 @@
+[Unit]
+Description=ytmon host metrics agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ytmon-agent --config /etc/ytmon/agent.toml
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+StateDirectory=ytmon
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ytmon
+
+[Install]
+WantedBy=multi-user.target

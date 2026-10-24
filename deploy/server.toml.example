@@ -1,0 +1,32 @@
+# /etc/ytmon/server.toml —— ytmon 中心配置
+# 缺省时服务器使用内置默认值（只监听 9180，不启用 discovery/probe）。
+
+listen = "0.0.0.0:9180"
+db = "/var/lib/ytmon/ytmon.db"
+
+# --- PVE 只读发现：让"所有 CT/VM"包含没装 agent 的机器 ---
+pve_base = "https://pve.example.com:8006"
+pve_node = "pve"
+pve_token_file = "/etc/ytmon/pve.token"
+pve_interval_secs = 300
+
+# --- 主动探测：覆盖 Windows VM / SSH 未开的 NAS ---
+probe_interval_secs = 60
+
+[[probes]]
+name = "win-desk"
+kind = "tcp"
+addr = "192.0.2.20:3389"
+timeout_secs = 4
+
+[[probes]]
+name = "nas"
+kind = "icmp"
+addr = "192.0.2.30"
+timeout_secs = 3
+
+[[probes]]
+name = "nas"
+kind = "http"
+url = "https://nas.example.com/"
+timeout_secs = 5

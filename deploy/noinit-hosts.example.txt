@@ -1,0 +1,6 @@
+# 没有可用 init 的容器：agent 由一台常驻主机上的 watchdog 拉起（每 3 分钟）。
+# 复制成 deploy/noinit-hosts.txt（已在 .gitignore 里）再填自己的机器。
+# 格式：IP 名称 CTID
+192.0.2.11  web-01    400
+192.0.2.12  dns-01    401
+192.0.2.13  board-01  403

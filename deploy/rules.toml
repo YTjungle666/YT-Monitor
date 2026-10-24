@@ -1,0 +1,77 @@
+# ytmon 告警规则
+#
+# 评估间隔由 server.toml 的 alert_interval_secs 决定（默认 30s）。
+# 本文件每轮重读，改完不用重启服务。
+#
+# kind = "threshold"：指标越过阈值；kind = "stale"：主机多久没上报。
+# for_secs：条件必须持续这么久才发通知（stale 规则里表示"多久没数据算掉线"）。
+# hosts 支持 "*"、精确名、"web-*" 前缀通配。
+#
+# cpu.usage_pct 是"该 guest 已分配 CPU 的占用率"：PVE 的 cores=4 对应 4 核
+# cpuset，跑满 4 核才是 100%。
+# 容器没有 cgroup 内存上限（memory.max=max），所以内存用
+# mem.used_bytes / pve.maxmem_bytes 的比值，pve.maxmem_bytes 来自只读 API。
+
+[[rules]]
+name = "cpu_high"
+title = "CPU 占用过高"
+kind = "threshold"
+metric = "cpu.usage_pct"
+hosts = ["*"]
+op = "gt"
+warning = 70
+critical = 90
+for_secs = 300
+unit = "%"
+
+[[rules]]
+name = "mem_high"
+title = "内存占用过高"
+kind = "threshold"
+metric = "mem.used_bytes"
+denominator_metric = "pve.maxmem_bytes"
+hosts = ["*"]
+op = "gt"
+warning = 80
+critical = 92
+for_secs = 300
+unit = "%"
+
+[[rules]]
+name = "disk_high"
+title = "磁盘空间不足"
+kind = "threshold"
+metric = "fs.used_pct"
+hosts = ["*"]
+op = "gt"
+warning = 80
+critical = 92
+for_secs = 600
+unit = "%"
+
+[[rules]]
+name = "probe_down"
+title = "服务探测失败"
+kind = "threshold"
+metric = "probe.up"
+hosts = ["*"]
+op = "lt"
+critical = 1
+for_secs = 120
+
+[[rules]]
+name = "guest_stopped"
+title = "CT/VM 已停止"
+kind = "threshold"
+metric = "pve.status"
+hosts = ["*"]
+op = "lt"
+critical = 1
+for_secs = 120
+
+[[rules]]
+name = "agent_stale"
+title = "上报中断"
+kind = "stale"
+hosts = ["*"]
+for_secs = 300

@@ -1,0 +1,87 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # -D warnings is inherited from RUSTFLAGS; the flag is repeated here so the
+      # intent survives someone editing the env block.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --target x86_64-unknown-linux-musl
+      - name: statically linked?
+        run: |
+          for b in ytmon-agent ytmon-server ytmon-dist; do
+            f="target/x86_64-unknown-linux-musl/release/$b"
+            file "$f"
+            file "$f" | grep -q 'statically linked'
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ytmon-linux-musl
+          path: |
+            target/x86_64-unknown-linux-musl/release/ytmon-agent
+            target/x86_64-unknown-linux-musl/release/ytmon-server
+            target/x86_64-unknown-linux-musl/release/ytmon-dist
+
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - run: cargo build --release -p ytmon-agent --target x86_64-pc-windows-gnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ytmon-windows
+          path: target/x86_64-pc-windows-gnu/release/ytmon-agent.exe

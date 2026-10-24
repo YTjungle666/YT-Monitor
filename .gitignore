@@ -1,0 +1,13 @@
+/target
+/dist
+*.spool
+*.db
+*.db-zstd
+.env
+/etc/ytmon/
+deploy/local/
+
+# Real fleet inventory and secrets stay out of the repo; the .example files are
+# the published form.
+deploy/noinit-hosts.txt
+*.token

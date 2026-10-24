@@ -1,0 +1,17 @@
+#!/sbin/openrc-run
+# ytmon-server for Alpine / OpenRC  ->  /etc/init.d/ytmon-server
+name="ytmon-server"
+description="ytmon ingest + query server"
+
+command="/usr/local/bin/ytmon-server"
+command_args="--listen 0.0.0.0:9180 --db /var/lib/ytmon/ytmon.db"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+output_log="/var/log/ytmon-server.log"
+error_log="/var/log/ytmon-server.log"
+
+depend() {
+    need net
+    after firewall
+}

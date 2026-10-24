@@ -1,0 +1,17 @@
+# ytmon agent 配置示例 —— 复制到 /etc/ytmon/agent.toml
+# 文件缺失时 agent 使用内置默认值（server 指向 127.0.0.1:9180）。
+
+# 覆盖上报的主机名；留空则读 /etc/hostname
+# host = "web-01"
+
+# PVE 容器 ID，仅用于展示与对账，可为空
+# ctid = 400
+
+server = "http://monitor.example.com:9180/ingest"
+interval_secs = 60
+
+# 需要监控容量的挂载点
+mounts = ["/"]
+
+# 断网时批次落盘目录
+state_dir = "/var/lib/ytmon"
