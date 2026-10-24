@@ -7,6 +7,7 @@
 use crate::probe::ProbeCfg;
 use crate::pve;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentToken {
@@ -144,6 +145,26 @@ impl FileCfg {
         })
     }
 
+    /// `node_id -> human name`, from the token table and the probe list.
+    ///
+    /// Series keys and alert state stay on the stable identity (`ct:403`), but
+    /// every card a person reads addresses the machine by its name
+    /// (`YT-Board`). A name the agent reports itself lives in the store and
+    /// takes precedence over this: the agent knows its own hostname, the config
+    /// only knows what the machine was called when it was enrolled.
+    pub fn label_map(&self) -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        for a in self.agents.iter().flatten() {
+            m.insert(a.node_id.clone(), a.name.clone());
+        }
+        for p in &self.probes {
+            if let Some(id) = &p.node_id {
+                m.insert(id.clone(), p.name.clone());
+            }
+        }
+        m
+    }
+
     /// Report settings, usable without Telegram (preview/back-fill endpoints).
     pub fn report_cfg(&self) -> crate::report::Cfg {
         crate::report::Cfg {
@@ -155,6 +176,7 @@ impl FileCfg {
                 .report_uplink_iface
                 .clone()
                 .unwrap_or_else(|| "wan".to_string()),
+            labels: self.label_map(),
         }
     }
 
@@ -176,6 +198,7 @@ impl FileCfg {
                 .unwrap_or_else(|| "/etc/ytmon/rules.toml".to_string()),
             token_file,
             chat_id,
+            labels: self.label_map(),
         })
     }
 }

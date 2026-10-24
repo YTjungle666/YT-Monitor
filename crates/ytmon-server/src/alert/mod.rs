@@ -25,6 +25,10 @@ pub struct Cfg {
     pub rules_file: String,
     pub token_file: String,
     pub chat_id: String,
+    /// `node_id -> human name` from the config. Names the agents report live
+    /// in the store and are layered on top every tick; without either, a card
+    /// falls back to the raw node id.
+    pub labels: HashMap<String, String>,
 }
 
 pub async fn run(store: Store, cfg: Cfg) {
@@ -47,7 +51,7 @@ pub async fn run(store: Store, cfg: Cfg) {
 
     loop {
         ticker.tick().await;
-        if let Err(e) = evaluate(&store, &cfg.rules_file, tg.as_ref(), &mut states).await {
+        if let Err(e) = evaluate(&store, &cfg, tg.as_ref(), &mut states).await {
             tracing::warn!(error = %e, "alert evaluation failed");
         }
     }
@@ -55,12 +59,12 @@ pub async fn run(store: Store, cfg: Cfg) {
 
 async fn evaluate(
     store: &Store,
-    rules_file: &str,
+    cfg: &Cfg,
     tg: Option<&Telegram>,
     states: &mut HashMap<String, State>,
 ) -> anyhow::Result<()> {
     // Reloaded every tick so editing rules.toml takes effect without a restart.
-    let rules = RulesFile::load(rules_file)?;
+    let rules = RulesFile::load(&cfg.rules_file)?;
     if rules.rules.is_empty() {
         return Ok(());
     }
@@ -71,8 +75,23 @@ async fn evaluate(
     let ips = store.host_ips()?;
     let series = store.all_latest()?;
 
+    // Display names: the config knows what a machine was enrolled as, the store
+    // knows what its agent last reported (a rename there wins). One meta read
+    // per tick, same cost as `last_seen`.
+    let mut labels = cfg.labels.clone();
+    match store.name_map() {
+        Ok(reported) => labels.extend(reported),
+        Err(e) => tracing::warn!(error = %e, "display names unavailable"),
+    }
+
     for rule in rules.rules.iter().filter(|r| r.enabled) {
-        for host in hosts.iter().filter(|h| rule.matches_host(h)) {
+        for host in hosts.iter() {
+            let label = labels.get(host).cloned().unwrap_or_else(|| host.clone());
+            // Rules match either the stable id (`ct:403`) or the name people
+            // use (`YT-Board`, `YT-*`), whichever the operator wrote down.
+            if !rule.matches_host(host) && !rule.matches_host(&label) {
+                continue;
+            }
             // `series_key` is for the log line; the notification uses the
             // human title, not the internal series name. (Do not call this
             // `key` — it would be shadowed by the alert state key below.)
@@ -113,7 +132,14 @@ async fn evaluate(
 
             match st.update(sev, value, now, rule.for_secs) {
                 Some(tr) => {
-                    let msg = format_msg(rule, host, ips.get(host).map(|s| s.as_str()), &tr, value);
+                    let msg = format_msg(
+                        rule,
+                        &label,
+                        host,
+                        ips.get(host).map(|s| s.as_str()),
+                        &tr,
+                        value,
+                    );
                     let delivered = match tg {
                         Some(t) => match t.send(&msg).await {
                             Ok(()) => {
@@ -181,8 +207,12 @@ fn save_state(store: &Store, key: &str, st: &State) -> anyhow::Result<()> {
     store.set_meta(key, &serde_json::to_string(st)?)
 }
 
+/// One card. `label` is what a person calls the machine (`YT-Board`); `host`
+/// is its stable identity (`ct:403`), shown as a second line so the card can be
+/// acted on (pct enter 403) without looking the name up.
 fn format_msg(
     rule: &Rule,
+    label: &str,
     host: &str,
     ip: Option<&str>,
     tr: &engine::Transition,
@@ -191,14 +221,14 @@ fn format_msg(
     let title = rule.title.as_deref().unwrap_or(&rule.name);
     let unit = rule.unit.as_deref().unwrap_or("");
     let addr = ip.unwrap_or("未知");
+    let mut who = format!("主机　{}\n", esc(label));
+    if label != host {
+        who.push_str(&format!("节点　{}\n", esc(host)));
+    }
+    who.push_str(&format!("地址　{}\n", esc(addr)));
 
     if tr.to == Level::Ok {
-        let mut s = format!(
-            "🟢 <b>已恢复 · {}</b>\n\n主机　{}\n地址　{}\n",
-            esc(title),
-            esc(host),
-            esc(addr)
-        );
+        let mut s = format!("🟢 <b>已恢复 · {}</b>\n\n{who}", esc(title),);
         if rule.kind != Kind::Stale {
             s.push_str(&format!("当前　<b>{}{}</b>\n", fmt_num(value), unit));
         }
@@ -212,12 +242,7 @@ fn format_msg(
         ("🟡", "警告")
     };
 
-    let mut s = format!(
-        "{icon} <b>{level} · {}</b>\n\n主机　{}\n地址　{}\n",
-        esc(title),
-        esc(host),
-        esc(addr)
-    );
+    let mut s = format!("{icon} <b>{level} · {}</b>\n\n{who}", esc(title));
 
     if rule.kind == Kind::Stale {
         s.push_str(&format!(
@@ -320,15 +345,18 @@ mod tests {
     }
 
     #[test]
-    fn card_has_host_and_ip() {
+    fn card_names_the_machine_not_the_node_id() {
         let rule = sample_rule();
         let tr = engine::Transition {
             from: Level::Ok,
             to: Level::Warning,
             held_secs: 312,
         };
-        let msg = format_msg(&rule, "web-01", Some("192.0.2.10"), &tr, 78.2);
-        assert!(msg.contains("web-01"), "{msg}");
+        let msg = format_msg(&rule, "YT-Board", "ct:403", Some("192.0.2.10"), &tr, 78.2);
+        assert!(msg.contains("主机　YT-Board"), "{msg}");
+        // the container id stays, one line down, so the card can be acted on
+        assert!(msg.contains("节点　ct:403"), "{msg}");
+        assert!(!msg.contains("主机　ct:403"), "{msg}");
         assert!(msg.contains("192.0.2.10"), "{msg}");
         assert!(msg.contains("警告"), "{msg}");
         assert!(msg.contains("78.2%"), "{msg}");
@@ -339,6 +367,19 @@ mod tests {
     }
 
     #[test]
+    fn unnamed_host_does_not_repeat_its_id() {
+        let rule = sample_rule();
+        let tr = engine::Transition {
+            from: Level::Ok,
+            to: Level::Warning,
+            held_secs: 10,
+        };
+        let msg = format_msg(&rule, "ct:403", "ct:403", Some("192.0.2.10"), &tr, 80.0);
+        assert_eq!(msg.matches("ct:403").count(), 1, "{msg}");
+        assert!(!msg.contains("节点"), "{msg}");
+    }
+
+    #[test]
     fn recovery_card_says_recovered() {
         let rule = sample_rule();
         let tr = engine::Transition {
@@ -346,8 +387,9 @@ mod tests {
             to: Level::Ok,
             held_secs: 723,
         };
-        let msg = format_msg(&rule, "web-01", Some("192.0.2.10"), &tr, 12.3);
+        let msg = format_msg(&rule, "YT-Board", "ct:403", Some("192.0.2.10"), &tr, 12.3);
         assert!(msg.contains("已恢复"), "{msg}");
+        assert!(msg.contains("主机　YT-Board"), "{msg}");
         assert!(msg.contains("12 分 3 秒"), "{msg}");
     }
 
@@ -359,7 +401,7 @@ mod tests {
             to: Level::Critical,
             held_secs: 400,
         };
-        let msg = format_msg(&rule, "web-01", None, &tr, 96.0);
+        let msg = format_msg(&rule, "YT-Board", "ct:403", None, &tr, 96.0);
         assert!(msg.contains("未知"), "{msg}");
     }
 }

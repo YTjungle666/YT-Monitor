@@ -50,6 +50,10 @@ pub struct Cfg {
     /// side would swamp the number.
     pub uplink_host: Option<String>,
     pub uplink_iface: String,
+    /// `node_id -> human name`, so the card lists `YT-Board` rather than
+    /// `ct:403`. The PVE path already carries guest names; this is what the
+    /// agent-counter fallback needs.
+    pub labels: HashMap<String, String>,
 }
 
 pub async fn run(
@@ -138,7 +142,7 @@ pub async fn build_card(
                     .map(|g| (g.name, Traffic { rx: g.rx, tx: g.tx }))
                     .collect();
                 return Ok(Card {
-                    text: render_rows(&rows, label, uplink.as_ref()),
+                    text: render_rows(&rows, label, uplink.as_ref(), &cfg.labels),
                     rows,
                     uplink,
                 });
@@ -149,12 +153,23 @@ pub async fn build_card(
         }
     }
 
+    // Agent counters are keyed by node id, so the names have to come from the
+    // label maps: the store's copy (what each agent calls itself) wins over the
+    // token table.
+    let mut labels = cfg.labels.clone();
+    if let Ok(reported) = store.name_map() {
+        labels.extend(reported);
+    }
     let rows: Vec<(String, Traffic)> = collect(store, from, to)?
         .into_iter()
-        .filter(|(h, _)| !cfg.exclude.iter().any(|x| x == h))
+        .filter(|(h, _)| {
+            !cfg.exclude
+                .iter()
+                .any(|x| x == h || Some(x) == labels.get(h))
+        })
         .collect();
     Ok(Card {
-        text: render_rows(&rows, label, None),
+        text: render_rows(&rows, label, None, &labels),
         rows,
         uplink: None,
     })
@@ -286,7 +301,12 @@ pub fn collect(store: &Store, from: i64, to: i64) -> anyhow::Result<Vec<(String,
 
 /// Compose the card from already-collected totals (kept separate so the
 /// archived copy and a live render cannot drift apart).
-fn render_rows(rows: &[(String, Traffic)], label: &str, uplink: Option<&Traffic>) -> String {
+fn render_rows(
+    rows: &[(String, Traffic)],
+    label: &str,
+    uplink: Option<&Traffic>,
+    labels: &HashMap<String, String>,
+) -> String {
     if rows.is_empty() && uplink.is_none() {
         return format!("📊 <b>月度流量汇总</b>\n{label}\n\n本期没有采样数据。");
     }
@@ -305,7 +325,7 @@ fn render_rows(rows: &[(String, Traffic)], label: &str, uplink: Option<&Traffic>
     for (host, t) in head {
         s.push_str(&format!(
             "{}　↓ {}　↑ {}\n",
-            esc(host),
+            esc(labels.get(host).map(String::as_str).unwrap_or(host)),
             human(t.rx),
             human(t.tx)
         ));

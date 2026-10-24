@@ -5,7 +5,8 @@
 #
 # kind = "threshold"：指标越过阈值；kind = "stale"：主机多久没上报。
 # for_secs：条件必须持续这么久才发通知（stale 规则里表示"多久没数据算掉线"）。
-# hosts 支持 "*"、精确名、"web-*" 前缀通配。
+# hosts 支持 "*"、精确名、"YT-*" 前缀通配；名字（YT-Board）和节点 ID（ct:403）
+# 两种写法都能匹配。通知卡片里的"主机"是名字，"节点"是 ID。
 #
 # cpu.usage_pct 是"该 guest 已分配 CPU 的占用率"：PVE 的 cores=4 对应 4 核
 # cpuset，跑满 4 核才是 100%。
