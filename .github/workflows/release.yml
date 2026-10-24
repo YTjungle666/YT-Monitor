@@ -78,6 +78,8 @@ jobs:
             --jq '.assets[] | "\(.name) \(.size)"'
           n=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length')
           test "$n" -eq 7
+          # Zero-byte means the upload silently failed; the checksum files are
+          # legitimately a few hundred bytes, so size alone proves nothing.
           gh release view "$GITHUB_REF_NAME" --json assets \
-            --jq '.assets[] | select(.size < 1000) | .name' | tee /tmp/small
-          test ! -s /tmp/small
+            --jq '.assets[] | select(.size < 1) | .name' | tee /tmp/empty
+          test ! -s /tmp/empty
