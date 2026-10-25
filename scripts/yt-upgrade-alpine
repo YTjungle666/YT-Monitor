@@ -11,6 +11,18 @@
 # 顺序很重要：清缓存必须是最后一个碰 apk 的动作。apk 发现索引文件不在，
 # 下一次任何 apk 命令（含 `apk version -l`）都会重新下载索引，缓存立刻长回来
 # （实测：先 rm 再统计，2.8 MB 又出现，mtime 比 done 还晚）。
+#
+# 运行身份：PID1 带 lxc.init.uid 的容器（YT-Panel / YT-Sub，uid 100）里 crond
+# 也不是 root，apk 会直接拒绝。这类容器装了 sudo 并配好 NOPASSWD 之后，本脚本
+# 自己提权重跑一遍，调用方不必关心。
+
+if [ "$(id -u)" != "0" ]; then
+    if command -v sudo >/dev/null 2>&1; then
+        exec sudo -n "$0" "$@"
+    fi
+    echo "yt-upgrade: 需要 root，且本机没有 sudo" >&2
+    exit 1
+fi
 
 LOG=/var/log/yt-upgrade.log
 
@@ -28,11 +40,17 @@ pending() {
     echo "=== $(date '+%F %T') done before=$before after=$after"
 } >>"$LOG" 2>&1
 
-# 只留最近 500 行，避免日志无限长（每台每天约 10 行）
-tail -n 500 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+# 只留最近 500 行，避免日志无限长（每台每天约 10 行）。
+# 原地重写而不是 mv：别的进程可能正追加写这些文件，mv 换掉 inode 后它们的
+# 写入会落到看不见的旧 inode 里。
+trim() {
+    f=$1
+    [ -f "$f" ] || return 0
+    [ "$(wc -c <"$f")" -gt 262144 ] || return 0
+    tail -n 500 "$f" >"$f.tmp" 2>/dev/null && cat "$f.tmp" >"$f" && rm -f "$f.tmp"
+}
 
 # 顺带给别的常驻日志封顶：agent 与 crond 的日志不归本脚本写，但没人看着就会一直长
-for f in /var/log/ytmon-agent.log /var/log/crond.log; do
-    [ -f "$f" ] || continue
-    [ "$(wc -c < "$f")" -gt 262144 ] && { tail -n 500 "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"; }
-done
+trim "$LOG"
+trim /var/log/ytmon-agent.log
+trim /var/log/crond.log

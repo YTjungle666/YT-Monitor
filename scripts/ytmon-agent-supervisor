@@ -10,6 +10,12 @@
 #   · 前台 wait 子进程，不会像 setsid 拉起的孤儿那样在容器里堆僵尸
 #   · 容器重启立即拉起，没有空窗
 #
+# 两种运行身份，路径跟着变：
+#   · PID1 是 root 的容器 → /run 里的 pidfile、/var/log/ytmon-agent.log
+#   · PID1 带 lxc.init.uid（如 YT-Panel / YT-Sub 的 uid 100）→ 用 agent 自己的
+#     state_dir。非 root 写不了 /run 和 /var/log 的 root 文件，写不进去就等于
+#     没有 pidfile、日志进黑洞口，agent 死了也没痕迹。
+#
 # 占用：常驻一个 busybox sh（约 1.4 MB RSS）+ agent 本身（约 2.8 MB）。
 # 日志每次启动前自检，超过 256 KB 截到 500 行，不会无限增长。
 #
@@ -17,12 +23,19 @@
 
 PIDFILE=/run/ytmon-agent-supervisor.pid
 LOG=/var/log/ytmon-agent.log
+if [ "$(id -u)" != "0" ]; then
+    # 非 root：落在 agent 的 state_dir 下（该目录应已 chown 给运行用户）
+    PIDFILE=/var/lib/ytmon/supervisor.pid
+    LOG=/var/lib/ytmon/agent.log
+fi
 MAX_BYTES=262144
 
 trim_log() {
     [ -f "$LOG" ] || return 0
     [ "$(wc -c <"$LOG")" -gt "$MAX_BYTES" ] || return 0
-    tail -n 500 "$LOG" >"$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+    # 原地重写而不是 mv：mv 会换掉 inode，本进程的追加 fd 仍指着旧文件，
+    # 之后的日志就全写进那个看不见的旧 inode 里了。
+    tail -n 500 "$LOG" >"$LOG.tmp" 2>/dev/null && cat "$LOG.tmp" >"$LOG" && rm -f "$LOG.tmp"
 }
 
 if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then

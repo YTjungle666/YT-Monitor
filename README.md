@@ -200,6 +200,25 @@ pct set <vmid> --entrypoint /usr/local/bin/yt-init
 原生 init 能用的容器不必套这一层：OpenRC 用 `supervisor="supervise-daemon"` + `respawn_delay`，
 s6 用 `/etc/services.d/<name>/run`（s6 自己会重启）。
 
+如果容器还带 `lxc.init.uid`（PID1 本身就是非 root，例如 uid 100 的 YT-Panel / YT-Sub），
+那 crond 也拿不到 root：`/etc/crontabs/root` 是 `600 root`，非 root 的 crond 读不到里面任何
+任务，`apk` 也会直接拒绝 —— 这种容器看起来有 crond 在跑，实际上从不升级。要多做三步：
+
+```sh
+apk add sudo
+echo 'ytpanel ALL=(root) NOPASSWD: /etc/periodic/daily/yt-upgrade' > /etc/sudoers.d/yt-upgrade
+chmod 440 /etc/sudoers.d/yt-upgrade
+# 任务写进运行用户自己的 crontab（非 root crond 只读 /etc/crontabs/<user>）
+echo '0 2 * * * /usr/bin/sudo -n /etc/periodic/daily/yt-upgrade' > /etc/crontabs/ytpanel
+chown ytpanel:ytpanel /etc/crontabs/ytpanel && chmod 600 /etc/crontabs/ytpanel
+chown -R 100:101 /var/lib/ytmon
+```
+
+`yt-upgrade-alpine` 自己会检测非 root 并 `exec sudo -n`，调用方不用关心；
+`ytmon-agent-supervisor` 检测到非 root 时把 pidfile 和日志改落到 `/var/lib/ytmon`
+（非 root 写不进 `/run` 和 `/var/log` 的 root 文件 —— 写不进去的后果是没有 pidfile、
+日志进黑洞口，进程死了都不留痕迹）。
+
 包升级同理下放到容器，不需要一台常驻主机定时 SSH 进来：
 
 | 系统 | 装什么 | 谁调度 |
