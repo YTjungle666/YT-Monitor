@@ -231,7 +231,7 @@ pub async fn run(store: Store, cfg: Cfg, cache: Arc<RwLock<Vec<Guest>>>) {
                         Sample::new("pve.uptime_seconds", ts, g.uptime as f64)
                             .label("vmtype", g.kind.clone()),
                     );
-                    if let Err(e) = store.ingest(&b) {
+                    if let Err(e) = store.ingest_passive(&b) {
                         failed += 1;
                         tracing::warn!(guest = %g.name, error = %e, "pve ingest failed");
                     }

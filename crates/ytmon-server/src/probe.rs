@@ -91,7 +91,15 @@ pub async fn run(store: Store, probes: Vec<ProbeCfg>, interval_secs: u64) {
             if !o.up {
                 tracing::warn!(probe = %p.name, kind, detail = %o.detail, "probe down");
             }
-            if let Err(e) = store.ingest(&b) {
+            // A probe that answered proves the host is up; one that did not is
+            // only an observation — it must not reset the liveness clock, or a
+            // host that has been dark for days reads as online forever.
+            let outcome = if o.up {
+                store.ingest(&b)
+            } else {
+                store.ingest_passive(&b)
+            };
+            if let Err(e) = outcome {
                 tracing::error!(probe = %p.name, error = %e, "probe ingest failed");
             }
         }

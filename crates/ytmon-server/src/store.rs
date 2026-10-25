@@ -101,7 +101,22 @@ impl Store {
         Ok(Self { db: Arc::new(db) })
     }
 
+    /// Store a batch sent by the host itself. Reaching this path is what
+    /// makes a host "alive": the request came from the machine.
     pub fn ingest(&self, batch: &Batch) -> Result<IngestResult> {
+        self.ingest_inner(batch, true)
+    }
+
+    /// Store a batch that observes a host without proving it answers: PVE
+    /// discovery (the hypervisor says "running", which is inventory, not
+    /// reachability) and a probe that just failed. Such a batch writes data but
+    /// must not touch `up:`, otherwise a replaced or hung machine stays green
+    /// forever — CT401 did, for as long as PVE kept reporting it running.
+    pub fn ingest_passive(&self, batch: &Batch) -> Result<IngestResult> {
+        self.ingest_inner(batch, false)
+    }
+
+    fn ingest_inner(&self, batch: &Batch, marks_alive: bool) -> Result<IngestResult> {
         let w = self.db.begin_write()?;
         let mut stored = 0usize;
         let mut new_series = 0usize;
@@ -152,7 +167,7 @@ impl Store {
             // that returns NaN for every metric still connects and still
             // posts, and it has no data to give — marking that agent "up"
             // would show a green card with frozen numbers next to it.
-            if stored > 0 {
+            if marks_alive && stored > 0 {
                 let up_key = format!("up:{}", batch.host);
                 let up_val = now_secs().to_string();
                 meta.insert(up_key.as_str(), up_val.as_str())?;
@@ -269,17 +284,11 @@ impl Store {
                 }
             }
         }
-        // Backfill from the data clock for hosts that have no `up:` row yet,
-        // otherwise the first run after this change marks everyone as stale.
-        for item in meta.iter()? {
-            let (k, v) = item?;
-            let key = k.value();
-            if let Some(host) = key.strip_prefix("seen:") {
-                if let Ok(ts) = v.value().parse::<i64>() {
-                    out.entry(host.to_string()).or_insert(ts);
-                }
-            }
-        }
+        // Backfill from the data clock is deliberately gone: `seen:` is also
+        // written by PVE discovery, so a guest with no agent would inherit a
+        // fresh timestamp from the hypervisor poll and read as alive. Liveness
+        // has exactly one source now, the `up:` row written by an agent or a
+        // probe.
         Ok(out)
     }
 
