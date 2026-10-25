@@ -1,0 +1,38 @@
+#!/bin/sh
+# yt-upgrade — 每日包升级 + 清缓存
+#
+# 由 busybox crond 的 `run-parts /etc/periodic/daily` 触发（默认 crontab 里
+# 02:00 那一行）。crond 由各容器自己的 PID1 拉起，所以本机不依赖 CT411。
+#
+# 也可手动执行一次：/etc/periodic/daily/yt-upgrade
+#
+# 只升级、不重启服务：musl/libc 这类包要等容器下次重启才真正生效。
+#
+# 顺序很重要：清缓存必须是最后一个碰 apk 的动作。apk 发现索引文件不在，
+# 下一次任何 apk 命令（含 `apk version -l`）都会重新下载索引，缓存立刻长回来
+# （实测：先 rm 再统计，2.8 MB 又出现，mtime 比 done 还晚）。
+
+LOG=/var/log/yt-upgrade.log
+
+pending() {
+    apk version -l "<" 2>/dev/null | tail -n +2 | wc -l
+}
+
+{
+    echo "=== $(date '+%F %T') start"
+    apk update -q 2>&1 | tail -2
+    before=$(pending)
+    apk upgrade 2>&1 | tail -5
+    after=$(pending)
+    rm -rf /var/cache/apk/*
+    echo "=== $(date '+%F %T') done before=$before after=$after"
+} >>"$LOG" 2>&1
+
+# 只留最近 500 行，避免日志无限长（每台每天约 10 行）
+tail -n 500 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+
+# 顺带给别的常驻日志封顶：agent 与 crond 的日志不归本脚本写，但没人看着就会一直长
+for f in /var/log/ytmon-agent.log /var/log/crond.log; do
+    [ -f "$f" ] || continue
+    [ "$(wc -c < "$f")" -gt 262144 ] && { tail -n 500 "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"; }
+done

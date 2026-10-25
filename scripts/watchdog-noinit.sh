@@ -1,4 +1,11 @@
 #!/bin/bash
+# 【已停用 2026-10-25】agent 改由容器内自启，本脚本只作手动兜底保留：
+#   · 8 台应用作 PID1 的容器（1/11/22/33/44/77/99/155）：PID1 脚本里
+#     `setsid /usr/local/bin/ytmon-agent-supervisor &`（见 scripts/ytmon-agent-supervisor）
+#   · 55/166：/etc/init.d/ytmon-agent 用 `supervisor=supervise-daemon`（respawn_delay=15）
+#   · 133：s6（/etc/services.d/ytmon-agent/run）
+#   CT411 上 `*/3 * * * * .../watchdog-noinit.sh` 那行 cron 已注释；手工仍可跑本脚本补拉。
+#
 # 对没有 init 的容器保证 ytmon-agent 存活。
 #
 # 为什么不在容器里做：这些容器的 PID1 就是应用本身（start.sh / AdGuardHome /

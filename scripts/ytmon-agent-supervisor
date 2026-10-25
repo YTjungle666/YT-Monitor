@@ -1,0 +1,42 @@
+#!/bin/sh
+# ytmon-agent-supervisor — 让 agent 在无 init 的容器里自愈
+#
+# 为什么需要它：这些容器的 PID1 是应用或自定义 init（yt-init / yt-entrypoint.sh /
+# container-init / s6），没有 rc、也没有 systemd，没人替我们重启挂掉的进程。
+# 旧方案是 CT411 上每 3 分钟 SSH 轮询（scripts/watchdog-noinit.sh），代价是
+# 容器重启后最长 3 分钟的空窗，且 CT411 停机就全断。
+#
+# 本脚本由 PID1 脚本后台拉起（setsid），agent 退出后 15 秒重试：
+#   · 前台 wait 子进程，不会像 setsid 拉起的孤儿那样在容器里堆僵尸
+#   · 容器重启立即拉起，没有空窗
+#
+# 占用：常驻一个 busybox sh（约 1.4 MB RSS）+ agent 本身（约 2.8 MB）。
+# 日志每次启动前自检，超过 256 KB 截到 500 行，不会无限增长。
+#
+# 手动用法：/usr/local/bin/ytmon-agent-supervisor &（重复启动会因 pidfile 直接退出）
+
+PIDFILE=/run/ytmon-agent-supervisor.pid
+LOG=/var/log/ytmon-agent.log
+MAX_BYTES=262144
+
+trim_log() {
+    [ -f "$LOG" ] || return 0
+    [ "$(wc -c <"$LOG")" -gt "$MAX_BYTES" ] || return 0
+    tail -n 500 "$LOG" >"$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+}
+
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+    exit 0
+fi
+echo $$ > "$PIDFILE"
+
+mkdir -p /var/lib/ytmon
+
+while :; do
+    trim_log
+    echo "[supervisor $(date '+%F %T')] starting ytmon-agent" >>"$LOG"
+    /usr/local/bin/ytmon-agent --config /etc/ytmon/agent.toml >>"$LOG" 2>&1
+    rc=$?
+    echo "[supervisor $(date '+%F %T')] agent exited rc=$rc, retry in 15s" >>"$LOG"
+    sleep 15
+done

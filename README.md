@@ -168,7 +168,7 @@ SERVER_URL=http://monitor.example.com:9180/ingest sh pve.sh
 | 内存 | cgroup v2 `memory.stat`（anon/file 分项） | `mem.used_bytes` / `mem.total_bytes` |
 | CPU | `cpu.usage_usec` 累计值，服务端差分 | `cpu.usage_pct`（Windows 无累计计数器） |
 | 磁盘 / 网络 | `statvfs` / `/proc/net/dev` | `fs.*` / `net.*` 同名 |
-| 服务托管 | systemd / OpenRC / procd / 无 init 的 watchdog | Windows SCM（`windows-service`） |
+| 服务托管 | systemd / OpenRC / procd / 容器内 supervisor（无 init 时） | Windows SCM（`windows-service`） |
 
 Windows 交叉构建：
 
@@ -177,6 +177,38 @@ sudo apt install -y gcc-mingw-w64-x86-64
 rustup target add x86_64-pc-windows-gnu
 cargo build --release -p ytmon-agent --target x86_64-pc-windows-gnu
 ```
+
+### 容器里没有 init 时怎么自启
+
+有些 OCI 镜像的 PID1 就是应用本身（AdGuardHome、node、`start.sh`），容器里既没有 rc
+也没有 systemd，没人能拉起第二个进程。不去改 vendor 的 entrypoint（升级会被覆盖），
+而是把 LXC 的 `entrypoint` 换成自己的包装脚本，一套组合：
+
+| 文件 | 作用 |
+|---|---|
+| `deploy/yt-init.example` | PID1 包装：拉起 crond 与 agent supervisor，再把应用当子进程跑，转发 TERM/INT |
+| `scripts/ytmon-agent-supervisor` | 前台 wait agent，退出 15 秒后重试；pidfile 防重复；日志超 256 KB 截到 500 行 |
+
+```bash
+# 容器内
+install -m 755 yt-init.example /usr/local/bin/yt-init      # 先把默认命令改成本机原来的
+install -m 755 ytmon-agent-supervisor /usr/local/bin/
+# PVE
+pct set <vmid> --entrypoint /usr/local/bin/yt-init
+```
+
+原生 init 能用的容器不必套这一层：OpenRC 用 `supervisor="supervise-daemon"` + `respawn_delay`，
+s6 用 `/etc/services.d/<name>/run`（s6 自己会重启）。
+
+包升级同理下放到容器，不需要一台常驻主机定时 SSH 进来：
+
+| 系统 | 装什么 | 谁调度 |
+|---|---|---|
+| Alpine | `scripts/yt-upgrade-alpine` → `/etc/periodic/daily/yt-upgrade` | 容器自己的 busybox crond（默认 crontab 已有 `run-parts /etc/periodic/daily`） |
+| Debian | `scripts/yt-upgrade-debian.sh` + systemd `.service`/`.timer` | `yt-upgrade.timer` |
+
+两个脚本都只升不重启服务，并在结束时清包管理器缓存；日志各自留在 `/var/log/yt-upgrade.log`，
+超过 256 KB 自动截断 —— 常驻进程和日志都不该无限长。
 
 ## 安全边界
 

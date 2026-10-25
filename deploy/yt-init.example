@@ -1,0 +1,61 @@
+#!/bin/sh
+# yt-init — 容器的 PID1 包装（模板，每台的默认启动命令不同）
+#
+# 用途：那些 OCI 镜像原本把应用直接当 PID1，容器里没有任何能跑定时任务或守护
+# 进程的地方。把 LXC 的 entrypoint 指到本脚本后：
+#   1. 拉起 crond —— 由 /etc/periodic/daily/yt-upgrade 每天升级并清缓存；
+#   2. 拉起 ytmon-agent-supervisor —— agent 崩了自动重来（替掉 CT411 上的 SSH 轮询）；
+#   3. 应用作为子进程跑，PID1 处理 TERM/INT 并向整组转发，pct shutdown 不必等超时。
+#
+# 写法与 CT403/CT404 的 container-init 同款。装法：
+#   容器内：install -m 755 yt-init /usr/local/bin/yt-init，把下面的默认命令换成本机原启动命令
+#   PVE：   pct set <vmid> --entrypoint /usr/local/bin/yt-init
+#   回滚：  pct set <vmid> --entrypoint "<这台容器原来的启动命令>"
+#
+# 注意：默认命令必须与原来的 entrypoint 逐字一致。特别是 AdGuard 那两台 ——
+# /opt/adguardhome/AdGuardHome 是 wrapper（先起 sshd 再 exec 真二进制），写成
+# AdGuardHome.hermes-real 会跳过 sshd，重启后就进不去容器。
+
+pgrep -x crond >/dev/null 2>&1 || /usr/sbin/crond -b -l 8 -L /var/log/crond.log
+
+# ytmon-agent：由本脚本后台守护（容器无 init，替代 CT411 的 3 分钟 SSH 轮询）
+setsid /usr/local/bin/ytmon-agent-supervisor >/dev/null 2>&1 &
+
+set -u
+
+if [ "$#" -eq 0 ]; then
+  set -- <替换为该容器原来的启动命令>
+fi
+
+child_pid=''
+stopping=0
+
+forward_signal() {
+  signal="$1"
+
+  if [ "$stopping" -eq 1 ]; then
+    return
+  fi
+  stopping=1
+
+  kill -"${signal}" -1 2>/dev/null || true
+}
+
+trap 'forward_signal TERM' TERM
+trap 'forward_signal INT' INT
+trap 'forward_signal HUP' HUP
+trap 'forward_signal QUIT' QUIT
+
+"$@" &
+child_pid=$!
+
+status=0
+while :; do
+  wait "$child_pid"
+  status=$?
+  if ! kill -0 "$child_pid" 2>/dev/null; then
+    break
+  fi
+done
+
+exit "$status"
