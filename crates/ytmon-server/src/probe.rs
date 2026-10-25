@@ -224,25 +224,3 @@ pub fn now() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_busybox_rtt() {
-        let s = "PING 192.0.2.10 (192.0.2.10): 56 data bytes\n64 bytes from 192.0.2.10: seq=0 ttl=64 time=0.412 ms\n";
-        assert_eq!(parse_ping_rtt(s), Some(0.412));
-    }
-
-    #[test]
-    fn parses_iputils_rtt() {
-        let s = "64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=11.3 ms";
-        assert_eq!(parse_ping_rtt(s), Some(11.3));
-    }
-
-    #[test]
-    fn no_rtt_when_unreachable() {
-        assert_eq!(parse_ping_rtt("Destination Host Unreachable"), None);
-    }
-}

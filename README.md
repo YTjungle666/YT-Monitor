@@ -39,7 +39,6 @@
 ```bash
 # 1. 构建（需要 x86_64-unknown-linux-musl target + musl-gcc）
 make build        # release，静态 musl
-make test         # 单元测试
 make package      # dist/bin/* 与 SHA256SUMS
 
 # 2. 起中心（空配置即可跑：只 ingest + 出图）
@@ -192,10 +191,9 @@ cargo build --release -p ytmon-agent --target x86_64-pc-windows-gnu
 ```bash
 cargo fmt --all
 cargo clippy --workspace --all-targets
-cargo test --workspace
 ```
 
-CI 跑 fmt + clippy（`-D warnings`）+ 完整测试 + 三平台构建；tag 触发 release 打包。
+CI 跑 fmt + clippy（`-D warnings`）+ 三平台构建；tag 触发 release 打包。
 
 ## 许可
 

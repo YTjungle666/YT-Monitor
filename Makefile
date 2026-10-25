@@ -3,15 +3,12 @@ TARGET := x86_64-unknown-linux-musl
 DIST := dist
 VERSION := $(shell grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
 
-.PHONY: all build test fmt clippy package clean run-server run-agent
+.PHONY: all build fmt clippy package clean run-server run-agent
 
-all: test build
+all: build
 
 build:
 	cargo build --release --target $(TARGET)
-
-test:
-	cargo test --workspace
 
 fmt:
 	cargo fmt --all

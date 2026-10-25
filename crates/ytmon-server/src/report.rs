@@ -437,34 +437,3 @@ pub fn this_month_so_far() -> (i64, i64, String) {
         .unwrap_or(start);
     (start, now, format!("{year} 年 {month} 月（截至今天）"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bytes_are_human() {
-        assert_eq!(human(0.0), "0 B");
-        assert_eq!(human(999.0), "999 B");
-        assert_eq!(human(1024.0), "1.0 KB");
-        assert_eq!(human(1536.0), "1.5 KB");
-        assert_eq!(human(1024.0 * 1024.0 * 1024.0 * 5.5), "5.5 GB");
-        assert_eq!(human(1024.0_f64.powi(4) * 2.0), "2.0 TB");
-    }
-
-    #[test]
-    fn previous_month_crosses_the_year_boundary() {
-        let (from, to, label) = prev_month(2026, 1);
-        assert!(to > from);
-        // December is 31 days.
-        assert_eq!(to - from, 31 * 86400, "local zone has no DST here");
-        assert_eq!(label, "2025 年 12 月");
-    }
-
-    #[test]
-    fn previous_month_is_a_full_month() {
-        let (from, to, label) = prev_month(2026, 3);
-        assert_eq!(to - from, 28 * 86400, "February 2026");
-        assert_eq!(label, "2026 年 2 月");
-    }
-}

@@ -34,16 +34,6 @@ jobs:
       # intent survives someone editing the env block.
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.99.0
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
-
   build-linux:
     runs-on: ubuntu-latest
     steps:

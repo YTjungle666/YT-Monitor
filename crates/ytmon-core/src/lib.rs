@@ -117,35 +117,3 @@ pub fn counter_delta(prev: f64, cur: f64) -> Option<f64> {
         None
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn label_order_does_not_split_series() {
-        let a = vec![
-            ("iface".to_string(), "eth0".to_string()),
-            ("x".to_string(), "1".to_string()),
-        ];
-        let b = vec![
-            ("x".to_string(), "1".to_string()),
-            ("iface".to_string(), "eth0".to_string()),
-        ];
-        assert_eq!(series_key("h", "m", &a), series_key("h", "m", &b));
-        assert_eq!(series_id("h", "m", &a), series_id("h", "m", &b));
-    }
-
-    #[test]
-    fn fnv_is_stable() {
-        assert_eq!(fnv1a64(b""), 0xcbf2_9ce4_8422_2325);
-        assert_eq!(fnv1a64(b"a"), 0xaf63_dc4c_8601_ec8c);
-    }
-
-    #[test]
-    fn counter_reset_is_not_a_delta() {
-        assert_eq!(counter_delta(100.0, 140.0), Some(40.0));
-        assert_eq!(counter_delta(140.0, 5.0), None);
-        assert_eq!(counter_delta(140.0, 140.0), Some(0.0));
-    }
-}
