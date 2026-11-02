@@ -66,6 +66,8 @@ pub struct FileCfg {
     /// agent) and the interface facing the optical modem.
     pub report_uplink_host: Option<String>,
     pub report_uplink_iface: Option<String>,
+    /// LAN port on that host, reported as the internal-total line.
+    pub report_internal_iface: Option<String>,
     #[serde(default)]
     pub probes: Vec<ProbeCfg>,
 }
@@ -176,6 +178,10 @@ impl FileCfg {
                 .report_uplink_iface
                 .clone()
                 .unwrap_or_else(|| "wan".to_string()),
+            internal_iface: self
+                .report_internal_iface
+                .clone()
+                .unwrap_or_else(|| "lan".to_string()),
             labels: self.label_map(),
         }
     }

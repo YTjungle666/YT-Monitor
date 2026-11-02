@@ -222,19 +222,6 @@ impl Store {
         Ok(out)
     }
 
-    /// Raw samples for one series key inside a time window, oldest first.
-    pub fn range(&self, key: &str, from: i64, to: i64) -> Result<Vec<(i64, f64)>> {
-        let id = fnv1a64(key.as_bytes());
-        let r = self.db.begin_read()?;
-        let raw = r.open_table(T_RAW)?;
-        let mut out = Vec::new();
-        for item in raw.range(pack(id, from)..pack(id, to))? {
-            let (k, v) = item?;
-            out.push((unpack_ts(k.value()), v.value()));
-        }
-        Ok(out)
-    }
-
     pub fn series_count(&self) -> Result<usize> {
         let r = self.db.begin_read()?;
         let t = r.open_table(T_SERIES)?;
@@ -249,18 +236,23 @@ impl Store {
     /// "restarted — everything the counter now shows happened inside this
     /// window".
     ///
+    /// A restart is only assumed when the counter actually collapses (below
+    /// half its previous reading). Smaller backsteps are rollup artefacts —
+    /// hourly rows are means, so a step inside the hour reads as a dip — and
+    /// counting those as fresh traffic inflated October's LAN figure by ~0.9 TB.
+    ///
     /// One sample is taken from before the window so the first interval is not
-    /// silently dropped.
+    /// silently dropped. Reads through `history`: raw samples only live two
+    /// weeks, so a month-long total has to come from the hourly rollup.
     pub fn counter_delta(&self, key: &str, from: i64, to: i64) -> Result<f64> {
         const BASELINE_LOOKBACK: i64 = 600;
-        let rows = self.range(key, from - BASELINE_LOOKBACK, to)?;
+        let rows = self.history(key, from - BASELINE_LOOKBACK, to)?;
         let mut total = 0.0;
         let mut prev: Option<f64> = None;
         for (ts, v) in rows {
             if let Some(p) = prev {
                 if ts >= from {
-                    let d = v - p;
-                    total += if d >= 0.0 { d } else { v };
+                    total += counter_step(p, v);
                 }
             }
             prev = Some(v);
@@ -756,4 +748,32 @@ fn now_secs() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+/// Bytes one sample-to-sample step of a cumulative counter contributes.
+fn counter_step(p: f64, v: f64) -> f64 {
+    let d = v - p;
+    if d >= 0.0 {
+        d
+    } else if v * 2.0 < p {
+        v
+    } else {
+        0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counter_step_separates_a_restart_from_a_rollup_dip() {
+        // Normal growth.
+        assert_eq!(counter_step(100.0, 160.0), 60.0);
+        // Host rebooted: the counter is now traffic since the reboot.
+        assert_eq!(counter_step(149.7e9, 0.5e9), 0.5e9);
+        // Same reboot seen through hourly means: one step inside the hour dips
+        // but the counter never collapsed, so nothing was added.
+        assert_eq!(counter_step(222.4e9, 149.7e9), 0.0);
+    }
 }

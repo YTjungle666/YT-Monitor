@@ -50,6 +50,9 @@ pub struct Cfg {
     /// side would swamp the number.
     pub uplink_host: Option<String>,
     pub uplink_iface: String,
+    /// The household LAN port on the same host. Reported as a reference line:
+    /// it carries device-to-device traffic that never reaches the internet.
+    pub internal_iface: String,
     /// `node_id -> human name`, so the card lists `YT-Board` rather than
     /// `ct:403`. The PVE path already carries guest names; this is what the
     /// agent-counter fallback needs.
@@ -111,17 +114,31 @@ async fn tick(
 pub struct Card {
     pub text: String,
     pub rows: Vec<(String, Traffic)>,
-    /// Household uplink total; only known when PVE RRD answered.
-    pub uplink: Option<Traffic>,
+    /// Household internet total, measured on the modem-facing port.
+    pub external: Option<Traffic>,
+    /// Household LAN-port total; includes device-to-device transfers.
+    pub internal: Option<Traffic>,
+}
+
+/// Totals measured on the two physical ports, plus where their series start.
+///
+/// The ports are the only honest baseline: guest counters count both ends of an
+/// internal transfer and never see what a phone or the TV pulled, so a card
+/// built from them alone reads as "the house moved 4 TB" when the internet
+/// actually carried a tenth of that.
+#[derive(Clone, Copy)]
+struct Ports {
+    external: Option<Traffic>,
+    internal: Option<Traffic>,
+    /// Earliest instant both ports cover; `None` when neither has data.
+    since: Option<i64>,
 }
 
 /// Collect and render one period.
 ///
-/// Preferred source is PVE's own RRD: it is measured on the hypervisor side,
-/// it survives the guest being reinstalled, and — for the uplink figure — the
-/// node interface is the one place every byte leaving the house must pass
-/// through, while guest-to-guest traffic on the same bridge never reaches it.
-/// The agent counters remain as a fallback for when PVE is unreachable.
+/// Preferred source for the per-guest rows is PVE's own RRD: it is measured on
+/// the hypervisor side and survives the guest being reinstalled. The agent
+/// counters remain as a fallback for when PVE is unreachable.
 pub async fn build_card(
     store: &Store,
     cfg: &Cfg,
@@ -130,10 +147,10 @@ pub async fn build_card(
     to: i64,
     label: &str,
 ) -> anyhow::Result<Card> {
+    let ports = ports(store, cfg, from, to);
     if let Some(pcfg) = &cfg.pve {
         match pve::period_traffic(pcfg, guests, from, to).await {
             Ok(t) => {
-                let uplink = uplink_total(store, cfg, from, to);
                 let rows: Vec<(String, Traffic)> = t
                     .guests
                     .into_iter()
@@ -142,9 +159,10 @@ pub async fn build_card(
                     .map(|g| (g.name, Traffic { rx: g.rx, tx: g.tx }))
                     .collect();
                 return Ok(Card {
-                    text: render_rows(&rows, label, uplink.as_ref(), &cfg.labels),
+                    text: render_rows(&rows, label, ports, from, &cfg.labels),
                     rows,
-                    uplink,
+                    external: ports.external,
+                    internal: ports.internal,
                 });
             }
             Err(e) => {
@@ -169,44 +187,54 @@ pub async fn build_card(
         })
         .collect();
     Ok(Card {
-        text: render_rows(&rows, label, None, &labels),
+        text: render_rows(&rows, label, ports, from, &labels),
         rows,
-        uplink: None,
+        external: ports.external,
+        internal: ports.internal,
     })
 }
 
-/// Household uplink from the agent-side counters of the modem-facing nic.
-///
-/// Returns `None` when that host has not been reporting for long enough to
-/// cover the window — better to show no total than a number that silently
-/// means "since the agent was installed".
-fn uplink_total(store: &Store, cfg: &Cfg, from: i64, to: i64) -> Option<Traffic> {
-    let host = cfg.uplink_host.as_ref()?;
-    let rx_key = format!("{host}|net.rx_bytes|iface={}", cfg.uplink_iface);
-    let tx_key = format!("{host}|net.tx_bytes|iface={}", cfg.uplink_iface);
-
-    // An hour of slack absorbs the 60s scrape interval and clock skew. More
-    // than that and the series starts mid-window, which would report "traffic
-    // since the agent was installed" as if it were the month's total.
-    const COVERAGE_GRACE: i64 = 3600;
-    let first = store.range(&rx_key, from, to).ok()?.first()?.0;
-    if first - from > COVERAGE_GRACE {
-        tracing::info!(
-            host,
-            iface = %cfg.uplink_iface,
-            from,
-            first,
-            "uplink series starts inside the window; omitting the total"
-        );
-        return None;
+/// Both physical-port totals for the window.
+fn ports(store: &Store, cfg: &Cfg, from: i64, to: i64) -> Ports {
+    let external = port_total(store, cfg, &cfg.uplink_iface, from, to);
+    let internal = port_total(store, cfg, &cfg.internal_iface, from, to);
+    // The note has to describe the worst case, so the coverage start is the
+    // later of the two ports.
+    let since = [external.map(|p| p.1), internal.map(|p| p.1)]
+        .into_iter()
+        .flatten()
+        .max();
+    Ports {
+        external: external.map(|p| p.0),
+        internal: internal.map(|p| p.0),
+        since,
     }
+}
 
+/// Traffic on one physical interface, plus the timestamp of its first sample.
+///
+/// A partially covered window is still reported — with the port's own start
+/// time, so the card can say which days are missing. Refusing to report it
+/// (the previous behaviour) left the guest sums alone on the card, which read
+/// as if the household had pulled 4 TB from the internet in October.
+fn port_total(
+    store: &Store,
+    cfg: &Cfg,
+    iface: &str,
+    from: i64,
+    to: i64,
+) -> Option<(Traffic, i64)> {
+    let host = cfg.uplink_host.as_ref()?;
+    let rx_key = format!("{host}|net.rx_bytes|iface={iface}");
+    let tx_key = format!("{host}|net.tx_bytes|iface={iface}");
+    let rx_start = store.history(&rx_key, from, to).ok()?.first()?.0;
+    let tx_start = store.history(&tx_key, from, to).ok()?.first()?.0;
     let rx = store.counter_delta(&rx_key, from, to).ok()?;
     let tx = store.counter_delta(&tx_key, from, to).ok()?;
     if rx <= 0.0 && tx <= 0.0 {
         return None;
     }
-    Some(Traffic { rx, tx })
+    Some((Traffic { rx, tx }, rx_start.max(tx_start)))
 }
 
 /// Render, send, and archive one period. Archiving both the numbers and the
@@ -233,7 +261,8 @@ pub async fn send_and_archive(
     // Keep the uplink next to the per-host rows: without it, the archived
     // numbers cannot reproduce the card's headline line.
     let archive = serde_json::json!({
-        "uplink": card.uplink,
+        "external": card.external,
+        "internal": card.internal,
         "hosts": card.rows,
     });
     store.set_meta(&format!("report:data:{}", period.key), &archive.to_string())?;
@@ -301,60 +330,76 @@ pub fn collect(store: &Store, from: i64, to: i64) -> anyhow::Result<Vec<(String,
 
 /// Compose the card from already-collected totals (kept separate so the
 /// archived copy and a live render cannot drift apart).
+///
+/// Shape: the two physical-port lines are the headline, the per-guest rows sit
+/// under a divider as reference only. There is deliberately no summed total of
+/// the rows — that number counts both ends of every internal transfer and reads
+/// as an internet figure it never was.
 fn render_rows(
     rows: &[(String, Traffic)],
     label: &str,
-    uplink: Option<&Traffic>,
+    ports: Ports,
+    from: i64,
     labels: &HashMap<String, String>,
 ) -> String {
-    if rows.is_empty() && uplink.is_none() {
+    if rows.is_empty() && ports.external.is_none() && ports.internal.is_none() {
         return format!("📊 <b>月度流量汇总</b>\n{label}\n\n本期没有采样数据。");
     }
 
     let mut s = format!("📊 <b>月度流量汇总</b>\n{label}\n\n");
-    if let Some(u) = uplink {
+    match ports.external {
+        Some(u) => s.push_str(&format!(
+            "外网　↓ <b>{}</b>　↑ <b>{}</b>\n",
+            human(u.rx),
+            human(u.tx)
+        )),
+        None => s.push_str("外网　无数据\n"),
+    }
+    if let Some(u) = ports.internal {
         s.push_str(&format!(
-            "外网出口　↓ <b>{}</b>　↑ <b>{}</b>\n\n",
+            "内网合计　↓ {}　↑ {}\n",
             human(u.rx),
             human(u.tx)
         ));
     }
+    // Say which days the ports do not cover. An hour of slack absorbs the 60s
+    // scrape interval and clock skew; anything more means the series starts
+    // mid-window, and hiding that is what made October look like 4 TB.
+    const COVERAGE_GRACE: i64 = 3600;
+    if let Some(since) = ports.since {
+        if since - from > COVERAGE_GRACE {
+            s.push_str(&format!(
+                "\n⚠️ 外网/内网合计只有 {} 起的数据（缺前 {} 天），明细为整月\n",
+                local_stamp(since),
+                (since - from) / 86400
+            ));
+        }
+    }
 
-    let shown = rows.len().min(12);
-    let (head, tail) = rows.split_at(shown);
-    for (host, t) in head {
-        s.push_str(&format!(
-            "{}　↓ {}　↑ {}\n",
-            esc(labels.get(host).map(String::as_str).unwrap_or(host)),
-            human(t.rx),
-            human(t.tx)
-        ));
+    if !rows.is_empty() {
+        s.push_str("\n—— 以下明细含内网互传，两端各计一次，仅作参考 ——\n\n");
+        let shown = rows.len().min(12);
+        let (head, tail) = rows.split_at(shown);
+        for (host, t) in head {
+            s.push_str(&format!(
+                "{}　↓ {}　↑ {}\n",
+                esc(labels.get(host).map(String::as_str).unwrap_or(host)),
+                human(t.rx),
+                human(t.tx)
+            ));
+        }
+        if !tail.is_empty() {
+            let rx: f64 = tail.iter().map(|(_, t)| t.rx).sum();
+            let tx: f64 = tail.iter().map(|(_, t)| t.tx).sum();
+            s.push_str(&format!(
+                "其余 {} 台　↓ {}　↑ {}\n",
+                tail.len(),
+                human(rx),
+                human(tx)
+            ));
+        }
     }
-    if !tail.is_empty() {
-        let rx: f64 = tail.iter().map(|(_, t)| t.rx).sum();
-        let tx: f64 = tail.iter().map(|(_, t)| t.tx).sum();
-        s.push_str(&format!(
-            "其余 {} 台　↓ {}　↑ {}\n",
-            tail.len(),
-            human(rx),
-            human(tx)
-        ));
-    }
-    let rx: f64 = rows.iter().map(|(_, t)| t.rx).sum();
-    let tx: f64 = rows.iter().map(|(_, t)| t.tx).sum();
-    s.push_str(&format!(
-        "\n各主机合计（{} 台）　↓ {}　↑ {}",
-        rows.len(),
-        human(rx),
-        human(tx)
-    ));
-    if uplink.is_some() {
-        // Without this note the two totals look contradictory: per-guest sums
-        // include backups and media sync between guests, which never touch the
-        // uplink.
-        s.push_str("\n（各主机合计含内网互传；网关出口是路由器转发量）");
-    }
-    s
+    s.trim_end().to_string()
 }
 
 fn human(v: f64) -> String {
@@ -390,6 +435,23 @@ fn local_now() -> (i32, u32, u32, u32) {
             (tm.tm_mon + 1) as u32,
             tm.tm_mday as u32,
             tm.tm_hour as u32,
+        )
+    }
+}
+
+/// `MM-DD HH:MM` in local time, for the coverage note.
+fn local_stamp(ts: i64) -> String {
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&ts, &mut tm).is_null() {
+            return "?".to_string();
+        }
+        format!(
+            "{:02}-{:02} {:02}:{:02}",
+            tm.tm_mon + 1,
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min
         )
     }
 }
@@ -436,4 +498,52 @@ pub fn this_month_so_far() -> (i64, i64, String) {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(start);
     (start, now, format!("{year} 年 {month} 月（截至今天）"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn card(since: Option<i64>) -> String {
+        let from = 1_790_000_000;
+        let ports = Ports {
+            external: Some(Traffic {
+                rx: 257e9,
+                tx: 26e9,
+            }),
+            internal: Some(Traffic {
+                rx: 1.1e12,
+                tx: 1.5e12,
+            }),
+            since,
+        };
+        let rows = vec![(
+            "ct:411".to_string(),
+            Traffic {
+                rx: 1.9e12,
+                tx: 2.2e12,
+            },
+        )];
+        render_rows(&rows, "2026 年 10 月", ports, from, &HashMap::new())
+    }
+
+    #[test]
+    fn ports_are_the_headline_and_rows_are_reference_only() {
+        let full = card(Some(1_790_000_000));
+        assert!(full.contains("外网　↓ <b>239.3 GB</b>　↑ <b>24.2 GB</b>"), "{full}");
+        assert!(full.contains("内网合计"), "{full}");
+        assert!(full.contains("仅作参考"), "{full}");
+        // The summed row total is what made October read as 4 TB of internet.
+        assert!(!full.contains("各主机合计"), "{full}");
+        assert!(!full.contains("缺前"), "{full}");
+    }
+
+    #[test]
+    fn partial_coverage_says_which_days_are_missing() {
+        let late = card(Some(1_790_000_000 + 22 * 86400));
+        assert!(late.contains("缺前 22 天"), "{late}");
+        assert!(late.contains("明细为整月"), "{late}");
+        // A port line is never dropped for being partial.
+        assert!(late.contains("外网　↓"), "{late}");
+    }
 }
