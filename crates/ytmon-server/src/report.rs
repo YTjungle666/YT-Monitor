@@ -217,13 +217,7 @@ fn ports(store: &Store, cfg: &Cfg, from: i64, to: i64) -> Ports {
 /// time, so the card can say which days are missing. Refusing to report it
 /// (the previous behaviour) left the guest sums alone on the card, which read
 /// as if the household had pulled 4 TB from the internet in October.
-fn port_total(
-    store: &Store,
-    cfg: &Cfg,
-    iface: &str,
-    from: i64,
-    to: i64,
-) -> Option<(Traffic, i64)> {
+fn port_total(store: &Store, cfg: &Cfg, iface: &str, from: i64, to: i64) -> Option<(Traffic, i64)> {
     let host = cfg.uplink_host.as_ref()?;
     let rx_key = format!("{host}|net.rx_bytes|iface={iface}");
     let tx_key = format!("{host}|net.tx_bytes|iface={iface}");
@@ -356,11 +350,7 @@ fn render_rows(
         None => s.push_str("外网　无数据\n"),
     }
     if let Some(u) = ports.internal {
-        s.push_str(&format!(
-            "内网合计　↓ {}　↑ {}\n",
-            human(u.rx),
-            human(u.tx)
-        ));
+        s.push_str(&format!("内网合计　↓ {}　↑ {}\n", human(u.rx), human(u.tx)));
     }
     // Say which days the ports do not cover. An hour of slack absorbs the 60s
     // scrape interval and clock skew; anything more means the series starts
@@ -530,7 +520,10 @@ mod tests {
     #[test]
     fn ports_are_the_headline_and_rows_are_reference_only() {
         let full = card(Some(1_790_000_000));
-        assert!(full.contains("外网　↓ <b>239.3 GB</b>　↑ <b>24.2 GB</b>"), "{full}");
+        assert!(
+            full.contains("外网　↓ <b>239.3 GB</b>　↑ <b>24.2 GB</b>"),
+            "{full}"
+        );
         assert!(full.contains("内网合计"), "{full}");
         assert!(full.contains("仅作参考"), "{full}");
         // The summed row total is what made October read as 4 TB of internet.
