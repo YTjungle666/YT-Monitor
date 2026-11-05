@@ -38,7 +38,13 @@ trim_log() {
     tail -n 500 "$LOG" >"$LOG.tmp" 2>/dev/null && cat "$LOG.tmp" >"$LOG" && rm -f "$LOG.tmp"
 }
 
-if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+# pidfile 里的 pid 必须真的是另一个 supervisor。容器重启后 PID 从头分配，旧 pidfile
+# 常正好落在新起的这个 shell 自己身上（/run 是 tmpfs 没这问题，/var/lib 会持久化），
+# 于是 `kill -0` 成功、自己 exit 0，agent 整场不启动。实测 YT-Panel / YT-Sub 每次
+# PVE 重启都这样静默掉线。
+other=$(cat "$PIDFILE" 2>/dev/null)
+if [ -n "$other" ] && [ "$other" != "$$" ] &&
+    tr '\0' ' ' <"/proc/$other/cmdline" 2>/dev/null | grep -q ytmon-agent-supervisor; then
     exit 0
 fi
 echo $$ > "$PIDFILE"

@@ -187,7 +187,7 @@ cargo build --release -p ytmon-agent --target x86_64-pc-windows-gnu
 | 文件 | 作用 |
 |---|---|
 | `deploy/yt-init.example` | PID1 包装：拉起 crond 与 agent supervisor，再把应用当子进程跑，转发 TERM/INT |
-| `scripts/ytmon-agent-supervisor` | 前台 wait agent，退出 15 秒后重试；pidfile 防重复；日志超 256 KB 截到 500 行 |
+| `scripts/ytmon-agent-supervisor` | 前台 wait agent，退出 15 秒后重试；pidfile 按 cmdline 校验防重复（容器重启后 PID 会重分配，只 `kill -0` 会撞上自己）；日志超 256 KB 截到 500 行 |
 
 ```bash
 # 容器内
