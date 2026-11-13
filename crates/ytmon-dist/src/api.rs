@@ -21,6 +21,24 @@ use crate::files::{self, Entry};
 pub struct AppState {
     pub root: Arc<PathBuf>,
     pub cache: files::Cache,
+    /// Path these routes are mounted under: `""` when this process is the whole
+    /// site, `/update` when the dashboard nests it. Every self-referencing link
+    /// and the install snippet needs it, since the page cannot see its own URL.
+    pub prefix: Arc<str>,
+}
+
+impl AppState {
+    pub fn new(root: impl Into<PathBuf>, prefix: &str) -> Self {
+        Self {
+            root: Arc::new(root.into()),
+            cache: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            prefix: prefix.into(),
+        }
+    }
+
+    fn link(&self, path: &str) -> String {
+        format!("{}/{}", self.prefix, path)
+    }
 }
 
 pub fn router(state: AppState) -> Router {
@@ -69,24 +87,28 @@ fn base_url(headers: &HeaderMap) -> String {
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
         .map(|h| format!("http://{h}"))
-        .unwrap_or_else(|| "http://<this-host>:8088".to_string())
+        .unwrap_or_else(|| "http://<this-host>".to_string())
 }
 
 /// The ingest listener is the same host on its own port; deriving it keeps the
-/// snippet correct behind a proxy that only forwards the dist port.
+/// snippet correct behind a proxy that only forwards the dashboard. The base
+/// may carry a path (`/update`), so drop path before port.
 fn ingest_url(base: &str) -> String {
     let host = base.rsplit_once("://").map(|(_, r)| r).unwrap_or(base);
+    let host = host.split('/').next().unwrap_or(host);
     let host = host.split(':').next().unwrap_or(host);
     format!("http://{host}:9180/ingest")
 }
 
 async fn index(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    let base = base_url(&headers);
+    let base = format!("{}{}", base_url(&headers), state.prefix);
+    let ingest = ingest_url(&base);
     let entries = catalog(&state).await;
     let mut rows = String::new();
     for e in &entries {
         rows.push_str(&format!(
-            "<tr><td><a href=\"/{p}\">{p}</a></td><td>{s}</td><td><code>{h}</code></td>             <td>{t}</td></tr>",
+            "<tr><td><a href=\"{href}\">{p}</a></td><td>{s}</td><td><code>{h}</code>             <td>{t}</td></tr>",
+            href = state.link(&e.path),
             p = e.path,
             s = human_size(e.size),
             h = &e.sha256[..16],
@@ -100,15 +122,14 @@ async fn index(State(state): State<AppState>, headers: HeaderMap) -> impl IntoRe
          td,th{{padding:.35em .9em;border-bottom:1px solid #333;text-align:left}}\
          code{{color:#9c9}}pre{{background:#1b1b1b;padding:1em;overflow:auto}}</style>\
          <h2>YT-Monitor 分发包</h2>\
-         <p>共 {n} 个文件 · <a href=/version.json>version.json</a></p>\
+         <p>共 {n} 个文件 · <a href={ver}>version.json</a></p>\
          <table><tr><th>文件</th><th>大小</th><th>sha256</th><th>更新</th></tr>{rows}</table>\
          <h3>安装 / 更新</h3>\
          <pre>curl -fsSL {base}/install/pve.sh -o pve.sh\nBASE={base} SERVER_URL={ingest} sh pve.sh</pre>\
          <h3>只拿二进制</h3>\
          <pre>curl -fsSL {base}/bin/ytmon-agent -o /usr/local/bin/ytmon-agent</pre>",
         n = entries.len(),
-        base = base,
-        ingest = ingest_url(&base),
+        ver = state.link("version.json"),
     );
     Html(html).into_response()
 }
@@ -192,5 +213,30 @@ fn fmt_time(ts: i64) -> String {
             tm.tm_hour,
             tm.tm_min
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ingest_url_drops_port_and_mount_prefix() {
+        assert_eq!(
+            ingest_url("http://monitor.example.com/update"),
+            "http://monitor.example.com:9180/ingest"
+        );
+        assert_eq!(
+            ingest_url("http://monitor.example.com:8088"),
+            "http://monitor.example.com:9180/ingest"
+        );
+    }
+
+    #[test]
+    fn links_carry_the_mount_prefix() {
+        let nested = AppState::new("/srv/ytmon-dist", "/update");
+        assert_eq!(nested.link("bin/ytmon-agent"), "/update/bin/ytmon-agent");
+        let root = AppState::new("/srv/ytmon-dist", "");
+        assert_eq!(root.link("version.json"), "/version.json");
     }
 }

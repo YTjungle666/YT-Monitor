@@ -47,6 +47,10 @@ pub struct FileCfg {
     /// Second bind address for the same router, e.g. "0.0.0.0:80" so the
     /// dashboard is reachable without a port while ingest keeps its own.
     pub extra_listen: Option<String>,
+    /// Directory whose `bin/` and `install/` are published at `/update`
+    /// (default `/srv/ytmon-dist`). Sharing the dashboard's port means the
+    /// update page and the panel are one URL with two paths.
+    pub dist_root: Option<String>,
     /// One entry per agent. The token is the identity: a rename only changes
     /// `name`, history and alerts stay attached, and revoking one machine means
     /// removing one entry rather than rotating a fleet-wide secret.
@@ -117,6 +121,17 @@ impl FileCfg {
 
     pub fn probe_interval(&self) -> u64 {
         self.probe_interval_secs.unwrap_or(60)
+    }
+
+    /// Content root for the `/update` page, or `None` to not mount it at all —
+    /// a server without published binaries should 404 rather than show an
+    /// empty catalog.
+    pub fn dist_root_path(&self) -> Option<String> {
+        let root = self
+            .dist_root
+            .clone()
+            .unwrap_or_else(|| "/srv/ytmon-dist".to_string());
+        std::path::Path::new(&root).is_dir().then_some(root)
     }
 
     /// The monthly report reuses the alert bot but is a separate worker: it

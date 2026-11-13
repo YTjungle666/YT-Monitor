@@ -5,7 +5,7 @@
 # the published binary with the local one and only swaps the file when they
 # differ, so a rerun is cheap and safe.
 #
-#   BASE=http://monitor.example.com:8088 \
+#   BASE=http://monitor.example.com/update \
 #     SERVER_URL=http://monitor.example.com:9180/ingest \
 #     sh pve.sh
 #
@@ -15,7 +15,7 @@ set -eu
 
 # This script cannot know where it was served from, so both endpoints are
 # required rather than defaulted to somebody else's host.
-BASE="${BASE:?set BASE to the ytmon-dist URL, e.g. http://monitor.example.com:8088}"
+BASE="${BASE:?set BASE to the dist URL, e.g. http://monitor.example.com/update}"
 HOST_NAME="${HOST_NAME:-$(cat /etc/hostname)}"
 SERVER_URL="${SERVER_URL:?set SERVER_URL to the ingest URL, e.g. http://monitor.example.com:9180/ingest}"
 # Ingest bearer token. Re-running with TOKEN=... rotates it on this host only.

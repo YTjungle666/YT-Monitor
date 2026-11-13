@@ -37,9 +37,10 @@ pub fn ingest_router(app: App) -> Router {
 /// no credentials: the operator opens a browser and sees the page. Put it
 /// behind the reverse proxy if it ever needs to be reachable from outside.
 pub fn panel_router(app: App) -> Router {
+    let dist_root = app.cfg.dist_root_path();
     // Reads only. `/ingest` and the write endpoints stay off this listener: it
     // carries no credentials, so it must not accept data or delete anything.
-    Router::new()
+    let panel = Router::new()
         .route("/", get(index))
         .route("/favicon.ico", get(favicon))
         .route("/icon-32.png", get(favicon))
@@ -51,7 +52,17 @@ pub fn panel_router(app: App) -> Router {
         .route("/api/pve/guests", get(api_pve_guests))
         .route("/api/report/preview", get(api_report_preview))
         .route("/api/report/history", get(api_report_history))
-        .with_state(app)
+        .with_state(app);
+    let Some(root) = dist_root else {
+        return panel;
+    };
+    // The published binaries live under the same port as the panel now, so
+    // there is one address to remember: `/update` (with or without the trailing
+    // slash — nest registers both from the inner `/` route).
+    panel.nest(
+        "/update",
+        ytmon_dist::api::router(ytmon_dist::api::AppState::new(root, "/update")),
+    )
 }
 
 fn data_routes() -> Router<App> {

@@ -19,6 +19,10 @@ pub struct Config {
     pub listen: String,
     #[serde(default = "default_root")]
     pub root: String,
+    /// Path the routes are mounted under, e.g. `/update`. Empty when this
+    /// process serves them at the root; the dashboard sets it when nesting.
+    #[serde(default)]
+    pub prefix: String,
 }
 
 impl Default for Config {
@@ -26,6 +30,7 @@ impl Default for Config {
         Self {
             listen: default_listen(),
             root: default_root(),
+            prefix: String::new(),
         }
     }
 }

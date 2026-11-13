@@ -138,24 +138,30 @@ uptime.seconds   load.1m
 
 `:9180`（机器面）只认 ingest 与查询；看板与图标挂在面板口，两个监听不共用路由。
 
-## 在线更新（ytmon-dist）
+## 在线更新（`/update`）
 
 只读 HTTP 服务，把 `root/bin` 与 `root/install` 下的文件连同 sha256 清单一起发布，
-于是"要不要更新"在下载前就能判断：
+于是"要不要更新"在下载前就能判断。**挂在面板同一个 80 端口上，按路径区分**
+（`ytmon-server` 在 `/update` 处挂载 `ytmon-dist` 的路由；`dist_root` 缺省
+`/srv/ytmon-dist`，目录不存在就不挂载）：
 
 ```
-/version.json        # 每个文件的大小、sha256、mtime
-/bin/ytmon-agent     # 二进制
-/install/pve.sh      # 幂等安装：比对 sha256，相同就跳过
+/update               # 文件清单与安装命令（同 /update/ 同页面）
+/update/version.json  # 每个文件的大小、sha256、mtime
+/update/bin/ytmon-agent     # 二进制
+/update/install/pve.sh      # 幂等安装：比对 sha256，相同就跳过
 ```
 
 脚本不知道自己是哪个地址被拉下来的，所以两个地址显式给：
 
 ```sh
-curl -fsSL http://monitor.example.com:8088/install/pve.sh -o pve.sh
-BASE=http://monitor.example.com:8088 \
+curl -fsSL http://monitor.example.com/update/install/pve.sh -o pve.sh
+BASE=http://monitor.example.com/update \
 SERVER_URL=http://monitor.example.com:9180/ingest sh pve.sh
 ```
+
+`ytmon-dist` 二进制仍保留，供不想跑面板的机器单独发布（`dist.toml` 里
+`listen`/`root`/`prefix`），此时路由在根路径。
 
 分发包（Windows zip / fnOS tar.gz）由 `scripts/package-targets.sh` 生成。
 
