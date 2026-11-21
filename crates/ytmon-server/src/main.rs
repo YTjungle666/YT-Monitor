@@ -108,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
 
     // One-time identity migration: series were keyed by host name, so a rename
     // used to strand the history under the old name. Rewrite them onto node ids
-    // (ct:400, vm:100, host:pve) before anything starts writing again.
+    // (ct:1044, vm:1144, host:pve) before anything starts writing again.
     let agents = cfg.agents.clone().unwrap_or_default();
     if store.get_meta("identity:v2")?.is_none() {
         let map: std::collections::HashMap<String, String> = agents

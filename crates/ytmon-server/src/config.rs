@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentToken {
-    /// Stable identity: `ct:400`, `vm:100`, `host:pve`.
+    /// Stable identity: `ct:1044`, `vm:1144`, `host:pve`.
     pub node_id: String,
     /// Human label, refreshed from whatever the agent reports.
     pub name: String,
@@ -164,7 +164,7 @@ impl FileCfg {
 
     /// `node_id -> human name`, from the token table and the probe list.
     ///
-    /// Series keys and alert state stay on the stable identity (`ct:403`), but
+    /// Series keys and alert state stay on the stable identity (`ct:1022`), but
     /// every card a person reads addresses the machine by its name
     /// (`YT-Board`). A name the agent reports itself lives in the store and
     /// takes precedence over this: the agent knows its own hostname, the config

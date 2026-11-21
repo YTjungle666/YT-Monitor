@@ -37,7 +37,7 @@ pub struct ProbeCfg {
     /// Label for this probe. Used as the series host only when `node_id` is
     /// absent, so a probe aimed at a guest can share that guest's identity.
     pub name: String,
-    /// Series identity, e.g. `vm:100`. Without it the probe gets its own row in
+    /// Series identity, e.g. `vm:1144`. Without it the probe gets its own row in
     /// the dashboard, which is how probe data ended up under a stale name after
     /// the identity migration.
     #[serde(default)]

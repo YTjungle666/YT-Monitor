@@ -1,8 +1,8 @@
 #!/bin/sh
 # yt-upgrade — 每日包升级 + 清缓存（systemd timer 驱动）
 #
-# 取代 CT411 上 upgrade-containers.sh 对这台的集中升级：容器自带 timer，
-# CT411 停机也照常升级。
+# 取代 CT1066 上 upgrade-containers.sh 对这台的集中升级：容器自带 timer，
+# CT1066 停机也照常升级。
 #
 # 只升级、不重启服务；需要新内核/libc 生效要等容器重启。
 # 与 apt-daily-upgrade.timer（只升安全更新）并存，各自幂等。

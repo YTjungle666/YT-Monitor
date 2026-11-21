@@ -4,7 +4,7 @@
 # 幂等：重复执行只重启服务。
 #
 # 判定依据是 /proc/1/comm，不是"某个目录存在"：
-# CT401 上 /etc/systemd 存在但 PID1 是 apache2，systemctl 根本不可用。
+# CT1055 上 /etc/systemd 存在但 PID1 是 apache2，systemctl 根本不可用。
 set -u
 
 BIN=/usr/local/bin/ytmon-agent

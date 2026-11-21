@@ -87,7 +87,7 @@ async fn evaluate(
     for rule in rules.rules.iter().filter(|r| r.enabled) {
         for host in hosts.iter() {
             let label = labels.get(host).cloned().unwrap_or_else(|| host.clone());
-            // Rules match either the stable id (`ct:403`) or the name people
+            // Rules match either the stable id (`ct:1022`) or the name people
             // use (`YT-Board`, `YT-*`), whichever the operator wrote down.
             if !rule.matches_host(host) && !rule.matches_host(&label) {
                 continue;
@@ -208,7 +208,7 @@ fn save_state(store: &Store, key: &str, st: &State) -> anyhow::Result<()> {
 }
 
 /// One card. `label` is what a person calls the machine (`YT-Board`); `host`
-/// is its stable identity (`ct:403`), shown as a second line so the card can be
+/// is its stable identity (`ct:1022`), shown as a second line so the card can be
 /// acted on (pct enter 403) without looking the name up.
 fn format_msg(
     rule: &Rule,

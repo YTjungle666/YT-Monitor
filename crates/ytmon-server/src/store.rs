@@ -111,7 +111,7 @@ impl Store {
     /// discovery (the hypervisor says "running", which is inventory, not
     /// reachability) and a probe that just failed. Such a batch writes data but
     /// must not touch `up:`, otherwise a replaced or hung machine stays green
-    /// forever — CT401 did, for as long as PVE kept reporting it running.
+    /// forever — CT1055 did, for as long as PVE kept reporting it running.
     pub fn ingest_passive(&self, batch: &Batch) -> Result<IngestResult> {
         self.ingest_inner(batch, false)
     }
@@ -548,7 +548,7 @@ impl Store {
 
     /// Rewrite series keys from the old `host name | metric` scheme to node ids.
     ///
-    /// `web-01|cpu.usage_pct` becomes `ct:400|cpu.usage_pct`, which is what
+    /// `web-01|cpu.usage_pct` becomes `ct:1044|cpu.usage_pct`, which is what
     /// makes a later rename a label change instead of a new machine. Series ids
     /// are hashes of the key, so the id changes too: `latest` and the three
     /// point tables have to move with it. Guarded by `identity:v2` in meta so a

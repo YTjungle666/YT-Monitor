@@ -4,7 +4,7 @@
 #     `setsid /usr/local/bin/ytmon-agent-supervisor &`（见 scripts/ytmon-agent-supervisor）
 #   · 55/166：/etc/init.d/ytmon-agent 用 `supervisor=supervise-daemon`（respawn_delay=15）
 #   · 133：s6（/etc/services.d/ytmon-agent/run）
-#   CT411 上 `*/3 * * * * .../watchdog-noinit.sh` 那行 cron 已注释；手工仍可跑本脚本补拉。
+#   CT1066 上 `*/3 * * * * .../watchdog-noinit.sh` 那行 cron 已注释；手工仍可跑本脚本补拉。
 #
 # 对没有 init 的容器保证 ytmon-agent 存活。
 #

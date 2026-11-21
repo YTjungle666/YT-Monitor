@@ -4,10 +4,10 @@
 # 用途：那些 OCI 镜像原本把应用直接当 PID1，容器里没有任何能跑定时任务或守护
 # 进程的地方。把 LXC 的 entrypoint 指到本脚本后：
 #   1. 拉起 crond —— 由 /etc/periodic/daily/yt-upgrade 每天升级并清缓存；
-#   2. 拉起 ytmon-agent-supervisor —— agent 崩了自动重来（替掉 CT411 上的 SSH 轮询）；
+#   2. 拉起 ytmon-agent-supervisor —— agent 崩了自动重来（替掉 CT1066 上的 SSH 轮询）；
 #   3. 应用作为子进程跑，PID1 处理 TERM/INT 并向整组转发，pct shutdown 不必等超时。
 #
-# 写法与 CT403/CT404 的 container-init 同款。装法：
+# 写法与 CT1022/CT1077 的 container-init 同款。装法：
 #   容器内：install -m 755 yt-init /usr/local/bin/yt-init，把下面的默认命令换成本机原启动命令
 #   PVE：   pct set <vmid> --entrypoint /usr/local/bin/yt-init
 #   回滚：  pct set <vmid> --entrypoint "<这台容器原来的启动命令>"
@@ -18,7 +18,7 @@
 
 pgrep -x crond >/dev/null 2>&1 || /usr/sbin/crond -b -l 8 -L /var/log/crond.log
 
-# ytmon-agent：由本脚本后台守护（容器无 init，替代 CT411 的 3 分钟 SSH 轮询）
+# ytmon-agent：由本脚本后台守护（容器无 init，替代 CT1066 的 3 分钟 SSH 轮询）
 setsid /usr/local/bin/ytmon-agent-supervisor >/dev/null 2>&1 &
 
 set -u

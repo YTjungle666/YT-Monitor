@@ -54,7 +54,7 @@ pub struct Cfg {
     /// it carries device-to-device traffic that never reaches the internet.
     pub internal_iface: String,
     /// `node_id -> human name`, so the card lists `YT-Board` rather than
-    /// `ct:403`. The PVE path already carries guest names; this is what the
+    /// `ct:1022`. The PVE path already carries guest names; this is what the
     /// agent-counter fallback needs.
     pub labels: HashMap<String, String>,
 }
@@ -508,7 +508,7 @@ mod tests {
             since,
         };
         let rows = vec![(
-            "ct:411".to_string(),
+            "ct:1066".to_string(),
             Traffic {
                 rx: 1.9e12,
                 tx: 2.2e12,

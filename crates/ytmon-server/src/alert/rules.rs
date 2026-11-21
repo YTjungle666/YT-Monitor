@@ -62,7 +62,7 @@ pub struct Rule {
     /// Human title shown in notifications, e.g. "CPU 占用过高".
     #[serde(default)]
     pub title: Option<String>,
-    /// `["*"]`, a node id (`ct:403`), a name (`YT-Board`), or a prefix
+    /// `["*"]`, a node id (`ct:1022`), a name (`YT-Board`), or a prefix
     /// wildcard (`YT-*`). Both namespaces work because the caller tests the id
     /// and the display label.
     #[serde(default = "all_hosts")]

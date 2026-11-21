@@ -419,7 +419,7 @@ async fn api_overview(State(app): State<App>) -> impl IntoResponse {
         // Three scrapes missed: the agent is gone, not just briefly late.
         let online = age <= 180;
 
-        // `node_id` is the identity (ct:400) and drives ordering; `host` is the
+        // `node_id` is the identity (ct:1044) and drives ordering; `host` is the
         // mutable label the agent reports, which is what a person reads.
         // Reported label, else the name from the token table: a host that has
         // not posted since the identity change should still read "pve", not
