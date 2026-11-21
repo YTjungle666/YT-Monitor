@@ -69,6 +69,7 @@ db = "/var/lib/ytmon/ytmon.db"
 pve_base = "https://pve.example.com:8006"   # 只读发现没装 agent 的 CT/VM
 pve_node = "pve"
 pve_token_file = "/etc/ytmon/pve.token"
+pve_prune_absent_secs = 600                 # PVE 删除后确认缺席多久才清历史（0=关闭）
 
 telegram_token_file = "/etc/ytmon/telegram.token"
 telegram_chat_id = "123456789"
@@ -87,13 +88,20 @@ addr = "192.0.2.30"
 
 ```toml
 host = "web-01"              # 覆盖上报主机名，默认 /etc/hostname
-ctid = 400                   # 仅展示与对账
 server = "http://monitor.example.com:9180/ingest"
 interval_secs = 60
 mounts = ["/"]
 state_dir = "/var/lib/ytmon" # 断网时的本地 spool
 server_token = "..."         # 可选：服务端要求 Bearer 时填
 ```
+
+agent 不需要配置 CTID：启动时从 `/proc/mounts` 的根挂载源（PVE LVM 的
+`vm--<id>--disk--0` 或 ZFS 的 `subvol-<id>-disk-0`）自动识别，随批次上报；
+VM/Windows 取不到时服务端按 `server.toml` 里的 `[[agents]] name` 匹配 PVE 清单。
+
+`[[agents]]` 的 `name` 要与 PVE 里的 guest 名一致：服务端用它校验上报的
+ctid，挡住拿错 token 的机器。PVE 里改名后要同步这里，或直接写 `node_id`
+固定身份；不在 PVE 清单里的主机（如 `host:pve`）必须写 `node_id`。
 
 `/etc/ytmon/rules.toml` —— 每轮重读，改完不用重启；完整示例见 `deploy/rules.toml`：
 

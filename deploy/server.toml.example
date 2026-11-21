@@ -9,6 +9,8 @@ pve_base = "https://pve.example.com:8006"
 pve_node = "pve"
 pve_token_file = "/etc/ytmon/pve.token"
 pve_interval_secs = 300
+# 从 PVE 删除的 guest，确认缺席这么久后连同历史一起清理（0 = 关闭）
+pve_prune_absent_secs = 600
 
 # --- 主动探测：覆盖 Windows VM / SSH 未开的 NAS ---
 probe_interval_secs = 60
@@ -30,3 +32,15 @@ name = "nas"
 kind = "http"
 url = "https://nas.example.com/"
 timeout_secs = 5
+
+# --- 每台 agent 一条 ---
+# node_id 可省略：省略时按 name 与 agent 上报的 ctid 自动解析。
+# 只有 host:pve 这类不在 PVE 清单里的身份必须写 node_id。
+# [[agents]]
+# name = "web-01"
+# token = "..."
+#
+# [[agents]]
+# node_id = "host:pve"
+# name = "pve"
+# token = "..."

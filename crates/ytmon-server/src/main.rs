@@ -75,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
             store.clone(),
             cfg.probes.clone(),
             cfg.probe_interval(),
+            pve_guests.clone(),
         ));
     }
 
@@ -110,17 +111,35 @@ async fn main() -> anyhow::Result<()> {
     // used to strand the history under the old name. Rewrite them onto node ids
     // (ct:1044, vm:1144, host:pve) before anything starts writing again.
     let agents = cfg.agents.clone().unwrap_or_default();
+    if cfg.pve_cfg().is_none() && agents.iter().any(|a| a.node_id.is_none()) {
+        tracing::warn!(
+            agents = agents.iter().filter(|a| a.node_id.is_none()).count(),
+            "agents without node_id need PVE discovery; configure pve_token_file or pin node_id"
+        );
+    }
     if store.get_meta("identity:v2")?.is_none() {
-        let map: std::collections::HashMap<String, String> = agents
-            .iter()
-            .map(|a| (a.name.clone(), a.node_id.clone()))
-            .collect();
-        match store.migrate_identity(&map) {
-            Ok(n) => {
-                tracing::info!(series = n, "identity migration: host names -> node ids");
-                store.set_meta("identity:v2", "1")?;
+        let complete = agents.iter().all(|a| a.node_id.is_some());
+        // A fresh store has no host-name series to migrate, so recording the
+        // marker is safe. An existing store with auto-identity agents is not:
+        // their old rows would be stranded, and setting the marker would make
+        // that permanent. Ask for one explicit node_id instead.
+        if complete || store.hosts()?.is_empty() {
+            let map: std::collections::HashMap<String, String> = agents
+                .iter()
+                .filter_map(|a| a.node_id.clone().map(|id| (a.name.clone(), id)))
+                .collect();
+            match store.migrate_identity(&map) {
+                Ok(n) => {
+                    tracing::info!(series = n, "identity migration: host names -> node ids");
+                    store.set_meta("identity:v2", "1")?;
+                }
+                Err(e) => tracing::error!(error = %e, "identity migration failed, will retry"),
             }
-            Err(e) => tracing::error!(error = %e, "identity migration failed, will retry"),
+        } else {
+            tracing::warn!(
+                agents = agents.iter().filter(|a| a.node_id.is_none()).count(),
+                "identity migration skipped: agents without node_id; set node_id once to migrate old host-name series"
+            );
         }
     }
 

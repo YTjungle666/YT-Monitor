@@ -61,6 +61,53 @@ fn local_ip(server: &str) -> Option<String> {
     Some(ip.to_string())
 }
 
+/// This host's PVE guest id, when the root disk is named after it.
+///
+/// PVE's LVM volumes are `vm-<id>-disk-<n>`; systemd escapes the dashes in the
+/// device name to `vm--<id>--disk--0`. ZFS uses `subvol-<id>-disk-<n>`. The
+/// router image already relies on the LVM form in `/lib/preinit/01_sysinfo`,
+/// so this is the same rule plus the ZFS name; a layout that hides the source
+/// falls back to server name lookup.
+///
+/// `shortcut: LVM/ZFS names only. Directory-backed rootfs is not parsed;
+/// upgrade when a guest moves to one.`
+fn vmid_from_source(src: &str) -> Option<u32> {
+    vmid_from_prefixed(src, "vm-").or_else(|| vmid_from_prefixed(src, "subvol-"))
+}
+
+fn vmid_from_prefixed(src: &str, prefix: &str) -> Option<u32> {
+    let i = src.find(prefix)?;
+    let rest = &src[i + prefix.len()..];
+    let rest = rest.strip_prefix('-').unwrap_or(rest);
+    let end = rest.find(|c: char| !c.is_ascii_digit())?;
+    if end == 0 {
+        return None;
+    }
+    let vmid: u32 = rest[..end].parse().ok()?;
+    rest[end..]
+        .trim_start_matches('-')
+        .starts_with("disk")
+        .then_some(vmid)
+}
+
+fn vmid_from_mounts(text: &str) -> Option<u32> {
+    for line in text.lines() {
+        let mut f = line.split_whitespace();
+        let Some(source) = f.next() else { continue };
+        if f.next() != Some("/") {
+            continue;
+        }
+        if let Some(vmid) = vmid_from_source(source) {
+            return Some(vmid);
+        }
+    }
+    None
+}
+
+pub fn detect_ctid() -> Option<u32> {
+    vmid_from_mounts(&std::fs::read_to_string("/proc/mounts").ok()?)
+}
+
 /// Run until `stop` is set. On Linux/console only Ctrl-C sets it; under the
 /// Windows service dispatcher the SCM stop control sets it.
 pub async fn run_until(
@@ -75,6 +122,8 @@ pub async fn run_until(
     let mut seq: u64 = 0;
     let mut tick = tokio::time::interval(Duration::from_secs(cfg.interval_secs.max(5)));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let ctid = detect_ctid();
+    tracing::info!(ctid = ?ctid, "guest id detected");
 
     loop {
         if stop.load(Ordering::SeqCst) {
@@ -89,7 +138,7 @@ pub async fn run_until(
 
         replay_spool(&cfg, &client).await;
 
-        let batch = build(&mut col, &host, cfg.ctid, seq, &cfg.server);
+        let batch = build(&mut col, &host, ctid, seq, &cfg.server);
         let n = batch.samples.len();
         match report::encode(&batch) {
             Ok(body) => match report::post(
@@ -140,5 +189,43 @@ async fn replay_spool(cfg: &Config, client: &reqwest::Client) {
                 break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pve_lvm_names_yield_the_guest_id() {
+        // systemd escapes both dashes of `vm-1166-disk-0`.
+        assert_eq!(
+            vmid_from_source("/dev/mapper/VM-vm--1166--disk--0"),
+            Some(1166)
+        );
+        // Some layouts expose the unescaped PVE name.
+        assert_eq!(
+            vmid_from_source("/dev/mapper/VM-vm-1044-disk-0"),
+            Some(1044)
+        );
+        // A plain VM disk has no guest id in it.
+        assert_eq!(vmid_from_source("/dev/sda2"), None);
+        // ZFS names the subvolume after the guest too.
+        assert_eq!(
+            vmid_from_source("rpool/data/subvol-1233-disk-0"),
+            Some(1233)
+        );
+        // Directory-backed rootfs does not expose the id; server name lookup.
+        assert_eq!(vmid_from_source("/dev/mapper/vg0-root"), None);
+    }
+
+    #[test]
+    fn only_the_root_mount_is_read() {
+        let mounts = "\
+/dev/sda1 /boot ext4 rw 0 0
+/dev/mapper/VM-vm--1022--disk--0 / ext4 rw 0 0
+";
+        assert_eq!(vmid_from_mounts(mounts), Some(1022));
+        assert_eq!(vmid_from_mounts("/dev/sda1 /boot ext4 rw 0 0\n"), None);
     }
 }

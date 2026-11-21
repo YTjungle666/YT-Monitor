@@ -11,9 +11,11 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentToken {
-    /// Stable identity: `ct:1044`, `vm:1144`, `host:pve`.
-    pub node_id: String,
-    /// Human label, refreshed from whatever the agent reports.
+    /// Optional pin. When omitted, ingest resolves the guest from the PVE
+    /// discovery cache (reported ctid first, then the configured `name`).
+    /// `host:pve` has no guest to resolve, so it must set this.
+    pub node_id: Option<String>,
+    /// Human label and the join key against the PVE guest list.
     pub name: String,
     pub token: String,
 }
@@ -51,6 +53,10 @@ pub struct FileCfg {
     /// (default `/srv/ytmon-dist`). Sharing the dashboard's port means the
     /// update page and the panel are one URL with two paths.
     pub dist_root: Option<String>,
+    /// Forget a guest that disappeared from PVE after this many seconds of
+    /// confirmed absence (default 600, 0 disables). A guest that is merely
+    /// switched off is still in the PVE list and is never pruned.
+    pub pve_prune_absent_secs: Option<u64>,
     /// One entry per agent. The token is the identity: a rename only changes
     /// `name`, history and alerts stay attached, and revoking one machine means
     /// removing one entry rather than rotating a fleet-wide secret.
@@ -107,6 +113,12 @@ impl FileCfg {
                 node: self.pve_node.clone().unwrap_or_else(|| "pve".to_string()),
                 token,
                 interval_secs: self.pve_interval_secs.unwrap_or(300),
+                prune_absent_secs: self.pve_prune_absent_secs.unwrap_or(600),
+                protected: self
+                    .probes
+                    .iter()
+                    .filter_map(|p| p.node_id.clone())
+                    .collect(),
             }),
             Ok(_) => {
                 tracing::warn!(path = %path, "pve token file empty, discovery disabled");
@@ -172,7 +184,9 @@ impl FileCfg {
     pub fn label_map(&self) -> HashMap<String, String> {
         let mut m = HashMap::new();
         for a in self.agents.iter().flatten() {
-            m.insert(a.node_id.clone(), a.name.clone());
+            if let Some(id) = &a.node_id {
+                m.insert(id.clone(), a.name.clone());
+            }
         }
         for p in &self.probes {
             if let Some(id) = &p.node_id {

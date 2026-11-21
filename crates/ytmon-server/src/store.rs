@@ -350,6 +350,16 @@ impl Store {
         Ok(())
     }
 
+    pub fn remove_meta(&self, key: &str) -> Result<()> {
+        let w = self.db.begin_write()?;
+        {
+            let mut meta = w.open_table(T_META)?;
+            meta.remove(key)?;
+        }
+        w.commit()?;
+        Ok(())
+    }
+
     // ---- rollups and retention ------------------------------------------
 
     fn series_ids(&self) -> Result<Vec<u64>> {
@@ -634,13 +644,12 @@ impl Store {
         Ok(out)
     }
 
-    /// Remove every registry trace of a host that no longer exists.
+    /// Remove every trace of a host that no longer exists.
     ///
     /// Series ids are opaque hashes of the key, so the only way to find a
-    /// host's rows is to walk the registry. Historical buckets are left alone:
-    /// they are keyed by id and age out of their tables on their own, and
-    /// scanning every id's range to reclaim them is not worth the risk of a
-    /// long write transaction on the live database.
+    /// host's rows is to walk the registry. The raw/hourly/daily ranges are
+    /// purged too: leaving them would resurrect the old guest's history if PVE
+    /// ever reuses its vmid (the new series hashes to the same id).
     pub fn drop_host(&self, host: &str) -> Result<usize> {
         let prefix = format!("{host}|");
         let w = self.db.begin_write()?;
@@ -648,6 +657,9 @@ impl Store {
         {
             let mut series = w.open_table(T_SERIES)?;
             let mut latest = w.open_table(T_LATEST)?;
+            let mut raw = w.open_table(T_RAW)?;
+            let mut hourly = w.open_table(T_HOURLY)?;
+            let mut daily = w.open_table(T_DAILY)?;
             let mut meta = w.open_table(T_META)?;
 
             let mut ids = Vec::new();
@@ -660,13 +672,29 @@ impl Store {
             for id in ids {
                 series.remove(id)?;
                 latest.remove(id)?;
+                let range = pack(id, 0)..pack(id, i64::MAX);
+                raw.retain_in(range.clone(), |_, _| false)?;
+                hourly.retain_in(range.clone(), |_, _| false)?;
+                daily.retain_in(range, |_, _| false)?;
                 removed += 1;
             }
 
             // Every meta row keyed by the node: data clock, liveness, address,
-            // and the display label.
-            for prefix in ["seen:", "up:", "ip:", "name:"] {
+            // display label, and alert state (`alert:<rule>|<host>`).
+            for prefix in ["seen:", "up:", "ip:", "name:", "pve:absent:"] {
                 meta.remove(format!("{prefix}{host}").as_str())?;
+            }
+            let alert_suffix = format!("|{host}");
+            let mut alert_keys = Vec::new();
+            for item in meta.iter()? {
+                let (k, _) = item?;
+                let key = k.value();
+                if key.starts_with("alert:") && key.ends_with(&alert_suffix) {
+                    alert_keys.push(key.to_string());
+                }
+            }
+            for key in alert_keys {
+                meta.remove(key.as_str())?;
             }
 
             // Read into an owned String first: the guard borrows `meta`, and the
@@ -775,5 +803,39 @@ mod tests {
         // Same reboot seen through hourly means: one step inside the hour dips
         // but the counter never collapsed, so nothing was added.
         assert_eq!(counter_step(222.4e9, 149.7e9), 0.0);
+    }
+
+    #[test]
+    fn drop_host_purges_history_so_a_reused_vmid_starts_clean() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("ytmon-drop-{stamp}.db"));
+        let store = Store::open(path.to_str().unwrap()).unwrap();
+
+        let mut b = Batch::new("ct:413", Some(413), 1);
+        b.push(ytmon_core::Sample::new("pve.status", 1_000, 1.0));
+        store.ingest_passive(&b).unwrap();
+        store.set_meta("alert:cpu_high|ct:413", "ok").unwrap();
+        assert_eq!(
+            store.history("ct:413|pve.status", 0, 2_000).unwrap().len(),
+            1
+        );
+
+        assert_eq!(store.drop_host("ct:413").unwrap(), 1);
+        assert!(store.get_meta("alert:cpu_high|ct:413").unwrap().is_none());
+
+        // Same key again: the old point must not resurface.
+        let mut b = Batch::new("ct:413", Some(413), 2);
+        b.push(ytmon_core::Sample::new("pve.status", 2_000, 1.0));
+        store.ingest_passive(&b).unwrap();
+        assert_eq!(
+            store.history("ct:413|pve.status", 0, 3_000).unwrap(),
+            vec![(2_000, 1.0)]
+        );
+
+        drop(store);
+        let _ = std::fs::remove_file(&path);
     }
 }

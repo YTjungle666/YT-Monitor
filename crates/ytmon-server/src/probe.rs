@@ -62,7 +62,12 @@ pub struct Outcome {
     pub detail: String,
 }
 
-pub async fn run(store: Store, probes: Vec<ProbeCfg>, interval_secs: u64) {
+pub async fn run(
+    store: Store,
+    probes: Vec<ProbeCfg>,
+    interval_secs: u64,
+    guests: std::sync::Arc<tokio::sync::RwLock<Vec<crate::pve::Guest>>>,
+) {
     if probes.is_empty() {
         tracing::info!("no probes configured");
         return;
@@ -78,10 +83,25 @@ pub async fn run(store: Store, probes: Vec<ProbeCfg>, interval_secs: u64) {
     loop {
         tick.tick().await;
         let ts = now();
-        for p in &probes {
+        // Resolve every probe once per tick: a probe aimed at a guest shares
+        // that guest's identity, so its data lands on the same row instead of
+        // a lookalike name. Explicit node_id still wins.
+        let targets: Vec<String> = {
+            let g = guests.read().await;
+            probes
+                .iter()
+                .map(|p| {
+                    p.node_id
+                        .clone()
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| crate::pve::resolve_name(g.as_slice(), &p.name))
+                        .unwrap_or_else(|| p.name.clone())
+                })
+                .collect()
+        };
+        for (p, target) in probes.iter().zip(targets) {
             let o = execute(&client, p).await;
             let kind = p.kind.as_str();
-            let target = p.node_id.clone().unwrap_or_else(|| p.name.clone());
             let mut b = Batch::new(target, None, 0);
             b.push(Sample::new("probe.up", ts, if o.up { 1.0 } else { 0.0 }).label("kind", kind));
             b.push(Sample::new("probe.latency_ms", ts, o.latency_ms).label("kind", kind));

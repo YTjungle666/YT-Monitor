@@ -16,6 +16,7 @@ use flate2::read::GzDecoder;
 use std::io::Read;
 use ytmon_core::Batch;
 
+use crate::pve;
 use crate::state::App;
 use crate::web;
 
@@ -117,7 +118,10 @@ async fn api_drop_host(State(app): State<App>, Query(q): Query<HostQuery>) -> im
 /// Who is calling, resolved from the token rather than from the request body.
 #[derive(Clone)]
 pub struct NodeIdentity {
-    pub node_id: String,
+    /// The token table's name: label, and the join key against PVE guests.
+    pub name: String,
+    /// Explicit pin from `[[agents]]`; `None` means resolve at ingest time.
+    pub node_id: Option<String>,
 }
 
 async fn require_token(
@@ -141,6 +145,7 @@ async fn require_token(
     if let Some(tok) = presented {
         if let Some(agent) = app.tokens.get(&tok) {
             req.extensions_mut().insert(NodeIdentity {
+                name: agent.name.clone(),
                 node_id: agent.node_id.clone(),
             });
             return next.run(req).await;
@@ -169,6 +174,16 @@ fn server_err(e: impl std::fmt::Display) -> (StatusCode, Json<serde_json::Value>
 fn bad_request(e: impl std::fmt::Display) -> (StatusCode, Json<serde_json::Value>) {
     (
         StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"ok": false, "error": e.to_string()})),
+    )
+}
+
+/// The guest list is not ready (first poll still running, or PVE unreachable).
+/// 503 makes the agent spool the batch and retry, which is safer than writing
+/// it under a guessed identity.
+fn unavailable(e: impl std::fmt::Display) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
         Json(serde_json::json!({"ok": false, "error": e.to_string()})),
     )
 }
@@ -257,11 +272,42 @@ async fn ingest(
         return bad_request(format!("proto v{} unsupported", batch.v)).into_response();
     }
 
-    // The token decides the identity; the `host` field is only a label. That is
-    // what lets a rename be a rename instead of a brand-new machine.
+    // The token decides who is calling; the identity is the PVE guest that
+    // token belongs to. An explicit `node_id` pins it; otherwise the reported
+    // ctid disambiguates and the configured name is the fallback. The body's
+    // `host` field is only a label.
     let label = batch.host.clone();
     if let Some(axum::Extension(id)) = ident {
-        batch.host = id.node_id;
+        let guests = app.pve_guests.read().await;
+        match pve::identify(
+            guests.as_slice(),
+            &id.name,
+            id.node_id.as_deref(),
+            batch.ctid,
+        ) {
+            Ok((node_id, source)) => {
+                if batch.ctid.is_some() && source != "ctid" {
+                    tracing::debug!(
+                        agent = %id.name,
+                        reported = ?batch.ctid,
+                        %node_id,
+                        source,
+                        "identity resolved by fallback"
+                    );
+                }
+                batch.host = node_id;
+            }
+            Err(e) => {
+                drop(guests);
+                tracing::warn!(
+                    agent = %id.name,
+                    reported = ?batch.ctid,
+                    error = %e,
+                    "identity unresolved"
+                );
+                return unavailable(e).into_response();
+            }
+        }
     }
     let host = batch.host.clone();
 
@@ -430,7 +476,7 @@ async fn api_overview(State(app): State<App>) -> impl IntoResponse {
             .or_else(|| {
                 app.tokens
                     .values()
-                    .find(|a| a.node_id == *host)
+                    .find(|a| a.node_id.as_deref() == Some(host.as_str()))
                     .map(|a| a.name.clone())
             })
             .unwrap_or_else(|| host.clone());

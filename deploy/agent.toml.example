@@ -4,9 +4,6 @@
 # 覆盖上报的主机名；留空则读 /etc/hostname
 # host = "web-01"
 
-# PVE 容器 ID，仅用于展示与对账，可为空
-# ctid = 400
-
 server = "http://monitor.example.com:9180/ingest"
 interval_secs = 60
 

@@ -17,8 +17,6 @@ pub struct Config {
     /// Override the reported host name (defaults to /etc/hostname).
     #[serde(default)]
     pub host: Option<String>,
-    #[serde(default)]
-    pub ctid: Option<u32>,
     #[serde(default = "default_server")]
     pub server: String,
     #[serde(default = "default_interval")]
@@ -43,7 +41,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             host: None,
-            ctid: None,
             server: default_server(),
             interval_secs: default_interval(),
             mounts: default_mounts(),

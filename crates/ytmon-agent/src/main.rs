@@ -58,7 +58,7 @@ async fn run_console(args: Args) -> Result<()> {
     let mut col = Collector::new(cfg.mounts.clone());
 
     if args.once {
-        let b = runtime::build(&mut col, &host, cfg.ctid, 0, &cfg.server);
+        let b = runtime::build(&mut col, &host, runtime::detect_ctid(), 0, &cfg.server);
         println!("{}", serde_json::to_string_pretty(&b)?);
         return Ok(());
     }
