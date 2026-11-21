@@ -67,10 +67,22 @@ pub async fn run(
     probes: Vec<ProbeCfg>,
     interval_secs: u64,
     guests: std::sync::Arc<tokio::sync::RwLock<Vec<crate::pve::Guest>>>,
+    pve_enabled: bool,
 ) {
     if probes.is_empty() {
         tracing::info!("no probes configured");
         return;
+    }
+    if pve_enabled {
+        // PVE discovery and this worker start together. Give the first poll a
+        // moment so the first tick does not write name-keyed probe rows that
+        // would never be updated once the guest cache fills.
+        for _ in 0..50 {
+            if !guests.read().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))

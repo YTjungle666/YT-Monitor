@@ -64,10 +64,13 @@ async fn main() -> anyhow::Result<()> {
 
     let pve_guests: Arc<RwLock<Vec<pve::Guest>>> = Arc::new(RwLock::new(Vec::new()));
 
-    if let Some(pcfg) = cfg.pve_cfg() {
+    let pve_on = if let Some(pcfg) = cfg.pve_cfg() {
         tracing::info!(node = %pcfg.node, base = %pcfg.base, "pve discovery enabled");
         tokio::spawn(pve::run(store.clone(), pcfg, pve_guests.clone()));
-    }
+        true
+    } else {
+        false
+    };
 
     if !cfg.probes.is_empty() {
         tracing::info!(count = cfg.probes.len(), "probes enabled");
@@ -76,6 +79,7 @@ async fn main() -> anyhow::Result<()> {
             cfg.probes.clone(),
             cfg.probe_interval(),
             pve_guests.clone(),
+            pve_on,
         ));
     }
 
@@ -111,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
     // used to strand the history under the old name. Rewrite them onto node ids
     // (ct:1044, vm:1144, host:pve) before anything starts writing again.
     let agents = cfg.agents.clone().unwrap_or_default();
-    if cfg.pve_cfg().is_none() && agents.iter().any(|a| a.node_id.is_none()) {
+    if !pve_on && agents.iter().any(|a| a.node_id.is_none()) {
         tracing::warn!(
             agents = agents.iter().filter(|a| a.node_id.is_none()).count(),
             "agents without node_id need PVE discovery; configure pve_token_file or pin node_id"
